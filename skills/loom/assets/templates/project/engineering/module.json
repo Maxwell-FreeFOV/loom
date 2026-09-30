@@ -1,0 +1,5 @@
+{
+  "description": "工程开发：repos/ 代码库管理（repos.yaml + sync_repos.py）、设计文档与 ADR",
+  "requires": [],
+  "dirs": ["repos"]
+}
