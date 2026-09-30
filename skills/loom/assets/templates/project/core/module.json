@@ -1,0 +1,5 @@
+{
+  "description": "核心（必装）：hub（hot、index、timeline、roadmap、log）、项目简报、资料、会话记录",
+  "requires": [],
+  "dirs": ["20-Sources/inbox", "20-Sources/raw", "40-Sessions/raw", "40-Sessions/decisions"]
+}

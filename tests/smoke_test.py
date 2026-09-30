@@ -1,7 +1,8 @@
-"""Loom 端到端测试：在临时目录中模拟安装、会话导出与归档、追加模块、代码库同步、升级和资料编目。
+"""Loom 端到端测试：在临时目录中模拟初始化、会话导出与归档、hook、模块、代码库、模板、迁移和部署。
 
 用法：py tests/smoke_test.py [--keep]
-  测试使用 Loom 仓库中已提交的内容，修改后请先提交再运行。--keep 表示保留临时目录，便于检查。
+  直接使用工作区中的 skills/loom（部署测试除外，它使用一个临时 clone 中已提交的内容）。
+  --keep 表示保留临时目录，便于检查。
 """
 import json
 import os
@@ -13,8 +14,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-LOOM = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[1]
+SKILL = REPO / "skills" / "loom"
+SCRIPTS = SKILL / "scripts"
 PY = sys.executable
+SPEC_FIELDS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 passed = 0
 
 
@@ -52,12 +56,21 @@ def check(cond, msg, detail=""):
     print(f"  ✓ {msg}")
 
 
-def loom(proj, *args, check=True):
-    return run(PY, proj / ".loom" / "tools" / "loom.py", *args, "--project", proj, cwd=proj, check=check)
+def loom(cwd, *args, check=True, env=None):
+    return run(PY, SCRIPTS / "loom.py", *args, cwd=cwd, check=check, env=env)
 
 
-def kb(proj, *args, **kw):
-    return run(PY, "scripts/kb.py", *args, cwd=proj, **kw)
+def kb(cwd, *args, **kw):
+    return run(PY, SCRIPTS / "kb.py", *args, cwd=cwd, **kw)
+
+
+def hook(script, project_dir, stdin=b"", env=None):
+    """模拟 Claude Code 调用 hook：bash run.sh <脚本>，CLAUDE_PROJECT_DIR 为会话启动目录。"""
+    e = {**(env or os.environ), "CLAUDE_PROJECT_DIR": str(project_dir)}
+    # 按 PATH 解析 bash：Windows 上直接用 "bash" 会先找到 System32 中 WSL 的 bash.exe
+    bash = shutil.which("bash") or "bash"
+    return subprocess.run([bash, str(SCRIPTS / "run.sh"), *script.split()], cwd=project_dir,
+                          capture_output=True, input=stdin, env=e)
 
 
 def transcript(path, session_id, cwd, text="我们来讨论第一个问题"):
@@ -70,186 +83,241 @@ def transcript(path, session_id, cwd, text="我们来讨论第一个问题"):
     write(path, "\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n")
 
 
-def edit(path, old, new):
-    text = read(path)
-    assert old in text, f"{path} 中找不到 {old!r}"
-    write(path, text.replace(old, new, 1))
+def slug(p):
+    return re.sub(r"[^A-Za-z0-9]", "-", str(p)).lower()
+
+
+def frontmatter_keys(text):
+    body = text.split("---", 2)[1]
+    return {line.split(":", 1)[0].strip() for line in body.splitlines() if line and not line.startswith((" ", "\t"))}
+
+
+def test_package():
+    print("skill 包结构")
+    keys = frontmatter_keys(read(SKILL / "SKILL.md"))
+    check(keys <= SPEC_FIELDS and {"name", "description"} <= keys, "SKILL.md 的 frontmatter 只用 Agent Skills 规范中的字段", keys)
+    desc = re.search(r"^description: (.*)$", read(SKILL / "SKILL.md"), re.M).group(1)
+    check(len(desc) <= 1024, f"description 不超过 1024 个字符（{len(desc)}）")
+    version = read(SKILL / "VERSION").strip()
+    check(json.loads(read(SKILL / ".claude-plugin/plugin.json"))["version"] == version
+          and f'version: "{version}"' in read(SKILL / "SKILL.md"), "VERSION、plugin.json、SKILL.md 的版本号一致")
+    hooks = json.loads(read(SKILL / "hooks/hooks.json"))["hooks"]
+    check(set(hooks) == {"SessionStart", "Stop", "SessionEnd"}
+          and all("${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" in g["hooks"][0]["command"] for v in hooks.values() for g in v),
+          "hooks.json 的三个 hook 都通过 run.sh 调用")
+    refs = re.findall(r"`references/(\w+)\.md`", read(SKILL / "SKILL.md"))
+    check(refs and all((SKILL / "references" / f"{r}.md").is_file() for r in refs), "SKILL.md 引用的说明文件都存在")
 
 
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="loom-test-")).resolve()
     print(f"临时目录：{tmp}")
-    src = tmp / "loom-src"  # Loom 的一个 clone，用来模拟发布新版本，不影响真实仓库
-    git(tmp, "clone", "-q", LOOM, src)
+    test_package()
 
-    def new_project(name):
-        proj = tmp / name
-        proj.mkdir(exist_ok=True)
-        git(proj, "clone", "-q", src, ".loom")
-        return proj
-
-    print("S1 从一句话想法起步：只安装 core")
-    p1 = new_project("idea")
-    loom(p1, "install", "--name", "测试想法", "--summary", "一个用来测试的想法")
+    print("S1 从一句话想法起步")
+    p1 = tmp / "idea"
+    p1.mkdir()
+    out = loom(p1, "init", "--name", "测试想法", "--summary", "一个用来测试的想法")
     meta = json.loads(read(p1 / ".kb.json"))
-    check(meta["modules"] == ["core"], ".kb.json 只启用了 core")
-    for f in ["CLAUDE.md", "LOOM-RULES.md", "00-Hub/hot.md", "00-Hub/timeline.md", "00-Hub/roadmap.md",
-              "10-Brief/项目简报.md", "20-Sources/sources-index.md", "scripts/kb.py", "scripts/export_session.py",
-              ".claude/skills/wrapup/SKILL.md", "90-Templates/会话纪要.md", "20-Sources/inbox/.gitkeep"]:
+    check(meta["modules"] == ["core"] and meta["schema"] == 1, ".kb.json：只启用 core，结构版本 1")
+    for f in ["AGENTS.md", "CLAUDE.md", "00-Hub/hot.md", "00-Hub/timeline.md", "00-Hub/roadmap.md",
+              "10-Brief/项目简报.md", "20-Sources/sources-index.md", "20-Sources/inbox/.gitkeep", ".gitignore"]:
         check((p1 / f).exists(), f"生成了 {f}")
-    check(not (p1 / "30-Wiki").exists() and not (p1 / "repos").exists(), "未启用模块的目录没有创建")
-    claude_md = read(p1 / "CLAUDE.md")
-    check("测试想法" in claude_md and "{{" not in claude_md and "@LOOM-RULES.md" in claude_md, "CLAUDE.md 占位符已替换，并引用了 LOOM-RULES.md")
-    check("{{title}}" in read(p1 / "90-Templates/会话纪要.md"), "Obsidian 模板变量 {{title}} 保持不变")
-    check(".loom/" in read(p1 / ".gitignore").splitlines(), ".gitignore 包含 .loom/")
-    hooks = json.loads(read(p1 / ".claude/settings.json"))["hooks"]
-    check(set(hooks) == {"SessionStart", "Stop", "SessionEnd"}, "settings.json 配置了三个 hook")
-    check(meta["python"] in hooks["Stop"][0]["hooks"][0]["command"], "hook 使用检测到的 Python 命令")
+    check(not any((p1 / d).exists() for d in ("scripts", ".claude", "90-Templates", "30-Wiki", "repos", "LOOM-RULES.md")),
+          "项目中没有脚本、skill、hook、模板，未启用模块的目录也没有创建")
+    agents = read(p1 / "AGENTS.md")
+    check("测试想法" in agents and "<!-- loom:begin -->" in agents and "{{" not in agents, "AGENTS.md 包含项目名和 Loom 区块")
+    check(read(p1 / "CLAUDE.md").startswith("@AGENTS.md"), "CLAUDE.md 引用 AGENTS.md")
+    check("已经是 Loom 项目" in loom(p1, "init", "--name", "x", check=False), "重复初始化被拒绝")
+    (p1 / "sub").mkdir()
+    check("位于 Loom 项目" in loom(p1 / "sub", "init", "--name", "x", check=False), "在另一个 Loom 项目内部初始化被拒绝")
     git(p1, "init", "-q")
     commit(p1, "init")
-    check(".loom/" not in git(p1, "ls-files"), ".loom 没有进入项目仓库")
-    kb(p1, "index")
-    check((p1 / "00-Hub/index.md").exists(), "kb.py index 生成了索引")
-    lint = kb(p1, "lint")
-    check("死链" not in lint and "缺少 frontmatter" not in lint, "新项目的 lint 没有死链和 frontmatter 问题", lint)
-    ss = kb(p1, "session-start")
-    check("测试想法" in ss and "00-Hub/hot.md" in ss, "session-start 输出项目上下文")
-    check("托管文件完整" in loom(p1, "doctor"), "doctor 检查通过")
-    check("已经初始化" in loom(p1, "install", "--name", "x", check=False), "重复 install 被拒绝")
 
-    print("会话导出与归档")
+    print("定位知识库根目录")
+    deep = p1 / "a" / "b"
+    deep.mkdir(parents=True)
+    kb(deep, "index")
+    check((p1 / "00-Hub/index.md").exists(), "在子目录中运行 kb.py index，索引写到知识库根目录")
+    lint = kb(deep, "lint")
+    check("✅" in lint, "新项目 lint 通过", lint)
+    check("不在 Loom 项目中" in kb(tmp, "index", check=False), "不在 Loom 项目中时报错")
+    status = loom(deep, "status", "--no-export")
+    check(str(p1) in status and "需要迁移" not in status and "Loom 区块" not in status, "status 找到根目录，结构和区块都正常", status)
+
+    print("hook（Claude Code 增强层）")
+    nokb = tmp / "plain"
+    nokb.mkdir()
+    r = hook("export_session", nokb, stdin=b'{"transcript_path": "x", "cwd": "."}')
+    check(r.returncode == 0 and not any(nokb.iterdir()), "不在 Loom 项目中时 run.sh 立即退出，不产生任何文件")
+    r = hook("kb session-start", p1)
+    ss = r.stdout.decode("utf-8", "replace")
+    check("测试想法" in ss and "Loom 通用规则" in ss and "00-Hub/hot.md" in ss, "SessionStart 注入项目状态、通用规则和 hot.md", ss[:300])
+    demo = p1 / "repos" / "demo"
+    demo.mkdir(parents=True)
     fake = tmp / "t1.jsonl"
-    transcript(fake, "abcd1234-0000", p1)
-    run(PY, "scripts/export_session.py", fake, cwd=p1)
+    transcript(fake, "abcd1234-0000", demo)
+    r = hook("export_session", demo, stdin=json.dumps({"transcript_path": str(fake), "cwd": str(demo)}).encode())
     raws = list((p1 / "40-Sessions/raw").rglob("*.md"))
-    check(len(raws) == 1, "对话导出到了 40-Sessions/raw/")
-    check(raws[0].stem in kb(p1, "unarchived"), "新会话出现在未归档列表中")
-    check("尚未归档" in kb(p1, "session-start"), "session-start 提醒有未归档的会话")
+    check(r.returncode == 0 and len(raws) == 1, "在 repos/demo 中启动的会话，Stop hook 把对话导出到知识库",
+          r.stderr.decode("utf-8", "replace"))
+    check("launched_in: repos/demo" in read(raws[0]), "导出的对话记录了启动目录")
+    hook("export_session", demo, stdin=json.dumps({"transcript_path": str(fake), "cwd": str(demo)}).encode())
+    check(len(list((p1 / "40-Sessions/raw").rglob("*.md"))) == 1, "重复导出覆盖同一个文件")
+    shutil.rmtree(p1 / "repos")
+
+    print("补导出与归档")
+    home = tmp / "home"
+    projects = home / ".claude" / "projects"
+    transcript(projects / slug(p1) / "root.jsonl", "11111111-root", p1, "根目录会话")
+    transcript(projects / f"{slug(p1)}-repos-demo" / "sub.jsonl", "22222222-sub", p1 / "repos" / "demo", "子目录会话")
+    sibling = tmp / "idea-studio"
+    transcript(projects / slug(sibling) / "sib.jsonl", "33333333-sib", sibling, "兄弟目录会话")
+    env = {**os.environ, "USERPROFILE": str(home), "HOME": str(home)}
+    out = run(PY, SCRIPTS / "export_session.py", "--all", cwd=p1, env=env)
+    check("11111111" in out and "22222222" in out, "--all 导出根目录和子目录启动的会话", out)
+    check("33333333" not in out, "--all 没有误收名字相近的兄弟目录的会话", out)
+    transcript(projects / slug(p1) / "later.jsonl", "44444444-later", p1, "后来的会话")
+    status = loom(p1, "status", env=env)
+    check((next((p1 / "40-Sessions/raw").rglob("*_44444444.md"), None) is not None) and "未归档" in status,
+          "status 补导出了新会话，并提示未归档", status)
+    raw_dir = p1 / "40-Sessions/raw"
+    stems = [p.stem for p in raw_dir.rglob("*.md")]
     write(p1 / "40-Sessions/notes/2026-09-30_测试.md",
           f"---\ntype: session\ntitle: 测试\ncreated: 2026-09-30\nupdated: 2026-09-30\ntags: []\n"
-          f"raws: [\"[[{raws[0].stem}]]\"]\n---\n\n# 测试\n")
-    check("没有未归档" in kb(p1, "unarchived"), "写了纪要之后不再提示未归档")
-    run(PY, "scripts/export_session.py", cwd=p1, stdin=json.dumps({"transcript_path": str(fake)}).encode())
-    check(len(list((p1 / "40-Sessions/raw").rglob("*.md"))) == 1, "hook 模式重复导出时覆盖同一个文件")
-
-    # --all：按根目录 slug 前缀扫描，并用 cwd 排除名字相近的兄弟目录
-    home = tmp / "home"
-    slug = re.sub(r"[^A-Za-z0-9]", "-", str(p1)).lower()
-    projects = home / ".claude" / "projects"
-    transcript(projects / slug / "root.jsonl", "11111111-root", p1, "根目录会话")
-    transcript(projects / f"{slug}-repos-demo" / "sub.jsonl", "22222222-sub", p1 / "repos" / "demo", "子目录会话")
-    sibling = tmp / "idea-studio"
-    transcript(projects / re.sub(r"[^A-Za-z0-9]", "-", str(sibling)).lower() / "sib.jsonl", "33333333-sib", sibling, "兄弟目录会话")
-    env = {**os.environ, "USERPROFILE": str(home), "HOME": str(home)}
-    out = run(PY, "scripts/export_session.py", "--all", cwd=p1, env=env)
-    check("11111111" in out and "22222222" in out, "--all 导出了根目录和子目录启动的会话", out)
-    check("33333333" not in out, "--all 没有误收名字相近的兄弟目录的会话", out)
-    sub_raw = next((p1 / "40-Sessions/raw").rglob("*_22222222.md"))
-    check("launched_in: repos/demo" in read(sub_raw), "子目录会话记录了启动目录")
-    raw_dir = p1 / "40-Sessions/raw"
-    skipped = "".join(f"- [[{p.stem}]]\n" for sid in ("11111111", "22222222") for p in raw_dir.rglob(f"*_{sid}.md"))
-    write(p1 / "40-Sessions/notes/_skipped.md", read(p1 / "40-Sessions/notes/_skipped.md") + skipped)
-    check("没有未归档" in kb(p1, "unarchived"), "登记到 _skipped.md 的会话不再提示未归档")
+          f"raws: [\"[[{stems[0]}]]\"]\n---\n\n# 测试\n")
+    write(p1 / "40-Sessions/notes/_skipped.md",
+          read(p1 / "40-Sessions/notes/_skipped.md") + "".join(f"- [[{s}]]\n" for s in stems[1:]))
+    check("没有未归档" in kb(p1, "unarchived"), "写纪要或登记到 _skipped.md 后，不再提示未归档")
     commit(p1, "sessions")
 
-    print("S7 项目演化：追加 engineering 和 outputs 模块")
-    loom(p1, "add", "engineering", "outputs")
+    print("Loom 区块")
+    write(p1 / "AGENTS.md", read(p1 / "AGENTS.md").replace("本项目是一个 Loom 项目知识库", "被改坏的区块")
+          + "\n## 用户自己加的一节\n- 保留我\n")
+    check("Loom 区块不是当前版本" in loom(p1, "status", "--no-export"), "status 发现 Loom 区块被改动")
+    loom(p1, "refresh-block")
+    agents = read(p1 / "AGENTS.md")
+    check("被改坏的区块" not in agents and "本项目是一个 Loom 项目知识库" in agents and "保留我" in agents,
+          "refresh-block 只替换区块内容，区块外的内容保留")
+
+    print("S7 启用模块")
+    loom(p1, "module", "add", "engineering", "outputs")
     meta = json.loads(read(p1 / ".kb.json"))
     check(meta["modules"] == ["core", "engineering", "outputs"], ".kb.json 的模块列表已更新")
-    check((p1 / "repos.yaml").exists() and (p1 / "scripts/sync_repos.py").exists()
-          and (p1 / "90-Templates/产出文档.md").exists(), "新模块的文件已安装")
+    check((p1 / "repos.yaml").exists() and (p1 / "repos/.gitkeep").exists(), "engineering：repos.yaml 和 repos/ 已创建")
     gi = read(p1 / ".gitignore").splitlines()
-    check("/repos/" in gi and ".loom/" in gi, ".gitignore 按行合并，加入了 /repos/")
+    check("/repos/" in gi and "*.loom-new" in gi, ".gitignore 按行合并，加入了 /repos/")
     check(json.loads(read(p1 / ".obsidian/app.json"))["userIgnoreFilters"] == ["repos/"], "Obsidian 排除了 repos/")
-    commit(p1, "add modules")
+    commit(p1, "modules")
 
-    print("S4 关联代码库")
+    print("S4 代码库")
     remote = tmp / "remote-repo"
     remote.mkdir()
     git(remote, "init", "-q")
     write(remote / "main.py", "print(1)\n")
     commit(remote, "first")
     write(p1 / "repos.yaml", read(p1 / "repos.yaml") + f"  - name: demo\n    remote: {remote.as_posix()}\n    role: 测试\n")
-    run(PY, "scripts/sync_repos.py", cwd=p1)
-    run(PY, "scripts/sync_repos.py", cwd=p1)  # 再运行一次，确认不会重复注入
-    demo = p1 / "repos" / "demo"
-    check((demo / "main.py").exists(), "sync_repos 克隆了代码库")
-    local = json.loads(read(demo / ".claude/settings.local.json"))
-    check(len(local["hooks"]["Stop"]) == 1 and "../../scripts/export_session.py" in local["hooks"]["Stop"][0]["hooks"][0]["command"],
-          "代码库中注入了指向知识库脚本的 hook，且只注入一次")
-    check(".claude/settings.local.json" in read(demo / ".git/info/exclude"), "settings.local.json 被排除在代码库的版本控制之外")
-    check(git(demo, "status", "--porcelain").strip() == "", "代码库的工作区保持干净")
+    out = run(PY, SCRIPTS / "sync_repos.py", cwd=p1)
+    check((p1 / "repos/demo/main.py").exists() and "干净" in out, "sync_repos 克隆了代码库，并显示状态", out)
+    check(not (p1 / "repos/demo/.claude").exists(), "不再往代码库里注入任何配置")
     check("repos/" not in git(p1, "status", "--porcelain"), "外层仓库看不到代码库的内容")
-    commit(p1, "repos")
 
-    print("S6 升级")
-    wiki_tpl = p1 / "90-Templates/wiki页.md"
-    write(wiki_tpl, read(wiki_tpl) + "\n## 本项目自定义段落\n")
-    settings = json.loads(read(p1 / ".claude/settings.json"))
-    settings["permissions"] = {"allow": ["Bash(ls)"]}
-    write(p1 / ".claude/settings.json", json.dumps(settings, ensure_ascii=False, indent=2) + "\n")
-    commit(p1, "local customizations")
-
-    core = src / "modules" / "core"
-    edit(core / "managed/90-Templates/wiki页.md", "> 一句话：", "> 一句话（新版）：")
-    write(core / "managed/LOOM-RULES.md", read(core / "managed/LOOM-RULES.md") + "\n<!-- test v0.2 -->\n")
-    write(core / "managed/scripts/new_tool.py", "print('new')\n")
-    (core / "managed/90-Templates/资料卡.md").unlink()
-    s = json.loads(read(core / "merged/.claude/settings.json"))
-    s["hooks"]["PostToolUse"] = [{"hooks": [{"type": "command", "command": "echo post"}]}]
-    write(core / "merged/.claude/settings.json", json.dumps(s, ensure_ascii=False, indent=2) + "\n")
-    edit(core / "seeded/00-Hub/hot.md", "## 当前重点", "## 当前重点（本周）")
-    write(src / "VERSION", "0.2.0\n")
-    write(src / "MIGRATIONS.md", read(src / "MIGRATIONS.md") + "\n## 0.2.0\n- 变化：测试\n")
-    commit(src, "v0.2.0")
-    git(p1 / ".loom", "pull", "-q", "--ff-only")
-
-    dry = loom(p1, "upgrade", "--dry-run")
-    check("预览" in dry and "wiki页.md" in dry and "新版" not in read(wiki_tpl), "dry-run 只预览，不写入", dry)
-    out = loom(p1, "upgrade")
-    t = read(wiki_tpl)
-    check("一句话（新版）" in t and "本项目自定义段落" in t, "托管文件三方合并：新版修改和本地修改都保留", out)
-    check("test v0.2" in read(p1 / "LOOM-RULES.md"), "没改过的托管文件直接更新")
-    check((p1 / "scripts/new_tool.py").exists(), "新版新增的托管文件已安装")
-    check(not (p1 / "90-Templates/资料卡.md").exists(), "新版删除、本地没改过的文件被删除")
-    s = json.loads(read(p1 / ".claude/settings.json"))
-    check("PostToolUse" in s["hooks"] and "Stop" in s["hooks"] and s.get("permissions"), "settings.json 合并：新 hook 已加入，项目自定义的配置保留")
-    check("当前重点（本周）" in out and "当前重点（本周）" not in read(p1 / "00-Hub/hot.md"), "种子文件不被修改，报告中给出模板差异")
-    check("MIGRATIONS" in out and "重启" in out, "报告提示了迁移说明和重启会话")
-    check(json.loads(read(p1 / ".kb.json"))["loom"]["version"] == "0.2.0", ".kb.json 记录了新版本")
-    check("已是最新" in loom(p1, "upgrade"), "再次升级提示已是最新")
-    commit(p1, "upgrade 0.2.0")
-
-    decision_tpl = p1 / "90-Templates/决策记录.md"
-    edit(decision_tpl, "## 4. 分析", "## 4. 分析（本地）")
-    commit(p1, "local edit")
-    edit(src / "modules/core/managed/90-Templates/决策记录.md", "## 4. 分析", "## 4. 分析（新版）")
-    write(src / "VERSION", "0.3.0\n")
-    commit(src, "v0.3.0")
-    git(p1 / ".loom", "pull", "-q", "--ff-only")
-    out = loom(p1, "upgrade")
-    check("冲突" in out and "<<<<<<<" in read(decision_tpl), "同一处的修改产生冲突标记", out)
-    write(src / "VERSION", "0.3.1\n")
-    commit(src, "v0.3.1")
-    git(p1 / ".loom", "pull", "-q", "--ff-only")
-    check("未提交的改动" in loom(p1, "upgrade", check=False), "工作区不干净时拒绝升级")
+    print("模板")
+    check(Path(loom(p1, "template", "会话纪要").strip()) == SKILL / "assets/templates/notes/会话纪要.md", "默认使用 skill 自带的模板")
+    write(p1 / "90-Templates/会话纪要.md", "---\ntype: session\ntitle: 自定义\n---\n")
+    check(Path(loom(p1, "template", "会话纪要").strip()) == p1 / "90-Templates/会话纪要.md", "项目中的同名模板优先")
+    check("可用模板" in loom(p1, "template", "不存在", check=False), "模板不存在时列出可用模板")
 
     print("S2 从已有资料起步")
     p2 = tmp / "materials"
-    originals = {"需求说明.md": "# 需求\n内容\n", "docs/调研.txt": "调研\n"}
+    originals = {"需求说明.md": "# 需求\n内容\n", "docs/调研.txt": "调研\n", "AGENTS.md": "# 我自己的说明\n"}
     for f, text in originals.items():
         write(p2 / f, text)
-    git(p2, "clone", "-q", src, ".loom")
-    loom(p2, "install", "--name", "资料项目", "--modules", "research")
-    check(all(read(p2 / f) == text for f, text in originals.items()), "已有资料保持原位，内容不变")
-    check((p2 / "90-Templates/文献卡.md").exists() and not (p2 / "30-Wiki").exists(), "research 模板已安装，wiki 目录等到用到时再创建")
+    loom(p2, "init", "--name", "资料项目", "--modules", "research")
+    check(all(read(p2 / f) == text for f, text in originals.items()), "已有资料和说明文件保持原样")
+    check((p2 / "AGENTS.md.loom-new").exists(), "已存在的 AGENTS.md 不被覆盖，模板写入 .loom-new")
+    check(".loom-new" in loom(p2, "doctor"), "doctor 提示有未处理的 .loom-new")
 
-    p3 = tmp / "existing"
-    write(p3 / "CLAUDE.md", "# 我自己的说明\n")
-    git(p3, "clone", "-q", src, ".loom")
-    loom(p3, "install", "--name", "已有说明")
-    check(read(p3 / "CLAUDE.md") == "# 我自己的说明\n" and (p3 / "CLAUDE.md.loom-new").exists(), "已存在的 CLAUDE.md 不被覆盖，新模板写入 .loom-new")
-    check(".loom-new" in loom(p3, "doctor"), "doctor 提示有未处理的 .loom-new")
+    print("迁移：Loom 0.1 项目 → 结构版本 1")
+    p3 = tmp / "legacy"
+    tpl = read(SKILL / "assets/templates/notes/会话纪要.md")
+    write(p3 / ".kb.json", json.dumps({"name": "旧项目", "summary": "", "created": "2026-09-30", "status": "active",
+                                       "modules": ["core", "engineering"], "python": "py",
+                                       "loom": {"version": "0.1.0", "commit": "abc"}}, ensure_ascii=False))
+    write(p3 / "CLAUDE.md", "# 旧项目\n\n> 一句话\n\n@LOOM-RULES.md\n\n本项目由 Loom 管理。通用规则见上面引入的 `LOOM-RULES.md`。\n\n"
+                            "## 项目特有约定\n\n- 我的约定\n")
+    write(p3 / "LOOM-RULES.md", "旧规则\n")
+    write(p3 / "scripts/kb.py", "# 旧脚本\n")
+    write(p3 / "scripts/my_tool.py", "# 用户自己的脚本\n")
+    write(p3 / ".claude/skills/wrapup/SKILL.md", "---\nname: wrapup\n---\n`$PY` 指 `.kb.json` 中 `python` 字段的值\n")
+    write(p3 / ".claude/skills/mine/SKILL.md", "---\nname: mine\n---\n用户自己的 skill\n")
+    old_hook = {"type": "command", "command": 'py "$CLAUDE_PROJECT_DIR/scripts/export_session.py"'}
+    write(p3 / ".claude/settings.json", json.dumps({"permissions": {"allow": ["Bash(ls)"]},
+                                                    "hooks": {"Stop": [{"hooks": [old_hook]}]}}))
+    write(p3 / "90-Templates/会话纪要.md", tpl)
+    write(p3 / "90-Templates/自定义.md", "我的模板\n")
+    write(p3 / "repos/demo/.claude/settings.local.json", json.dumps({"hooks": {"Stop": [{"hooks": [
+        {"type": "command", "command": 'py "$CLAUDE_PROJECT_DIR/../../scripts/export_session.py"'}]}]}}))
+    write(p3 / "repos/demo/.git/info/exclude", "# git 默认内容\n.claude/settings.local.json\n")
+    write(p3 / ".gitignore", ".loom/\n/repos/\n")
+    git(p3, "init", "-q")
+    commit(p3, "0.1 项目")
+    check("需要迁移" in loom(p3, "status", "--no-export"), "status 发现需要迁移")
+    dry = loom(p3, "migrate", "--dry-run")
+    check("预览" in dry and (p3 / "LOOM-RULES.md").exists(), "migrate --dry-run 只预览，不改动", dry)
+    out = loom(p3, "migrate")
+    meta = json.loads(read(p3 / ".kb.json"))
+    check(meta["schema"] == 1 and "python" not in meta and "loom" not in meta, ".kb.json 已迁移到结构版本 1", out)
+    check(not (p3 / "LOOM-RULES.md").exists() and not (p3 / "scripts/kb.py").exists()
+          and (p3 / "scripts/my_tool.py").exists(), "删除了 Loom 0.1 的规则和脚本，保留用户自己的脚本")
+    check(not (p3 / ".claude/skills/wrapup").exists() and (p3 / ".claude/skills/mine").exists(),
+          "删除了 Loom 0.1 的 skill，保留用户自己的 skill")
+    s = json.loads(read(p3 / ".claude/settings.json"))
+    check("hooks" not in s and s["permissions"]["allow"] == ["Bash(ls)"], "去掉了 settings.json 中 Loom 的 hook，保留其他配置")
+    check(not (p3 / "90-Templates/会话纪要.md").exists() and (p3 / "90-Templates/自定义.md").exists(),
+          "删除了与默认模板相同的模板，保留自定义模板")
+    check(not (p3 / "repos/demo/.claude/settings.local.json").exists()
+          and ".claude/settings.local.json" not in read(p3 / "repos/demo/.git/info/exclude"), "清除了注入代码库的 hook")
+    agents = read(p3 / "AGENTS.md")
+    check("我的约定" in agents and "LOOM-RULES" not in agents and "<!-- loom:begin -->" in agents
+          and read(p3 / "CLAUDE.md").startswith("@AGENTS.md"), "CLAUDE.md 的内容移到了 AGENTS.md，并加入了 Loom 区块", agents)
+    status = loom(p3, "status", "--no-export")
+    check("需要迁移" not in status and "Loom 区块" not in status, "迁移后 status 正常", status)
+    check("不需要迁移" in loom(p3, "migrate"), "再次迁移提示不需要迁移")
+
+    print("部署")
+    src = tmp / "loom-src"
+    git(tmp, "clone", "-q", REPO, src)
+    dirty = [line for line in git(REPO, "status", "--porcelain").splitlines() if line.strip()]
+    if dirty:  # 让临时 clone 与工作区一致，部署测试针对的是当前代码
+        for d in ("skills", "tools", "tests"):
+            shutil.rmtree(src / d, ignore_errors=True)
+            shutil.copytree(REPO / d, src / d)
+        commit(src, "工作区的改动")
+    home2 = tmp / "home2"
+    for d in (".claude", ".codex"):
+        (home2 / d).mkdir(parents=True)
+    out = run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests")
+    canonical = home2 / ".agents/skills/loom"
+    marker = json.loads(read(canonical / ".loom-deploy.json"))
+    check((canonical / "SKILL.md").exists() and marker["version"] == read(SKILL / "VERSION").strip(), "部署了 skill 本体并写入部署标记", out)
+    check((home2 / ".claude/skills/loom/SKILL.md").exists() and (home2 / ".codex/skills/loom/SKILL.md").exists(),
+          "Claude Code 和 Codex 的 skills 目录都能访问到 loom", out)
+    check(not (home2 / ".gemini").exists(), "默认不链接未指定的工具")
+    out = run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests")
+    check((home2 / ".claude/skills/loom/SKILL.md").exists() and "已部署" in out, "重复部署正常替换", out)
+    write(src / "skills/loom/SKILL.md", read(src / "skills/loom/SKILL.md") + "\n改动\n")
+    check("未提交的改动" in run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", check=False), "源码有未提交改动时拒绝部署")
+    git(src, "checkout", "--", ".")
+    home3 = tmp / "home3"
+    write(home3 / ".agents/skills/loom/SKILL.md", "别人的 loom\n")
+    check("不覆盖" in run(PY, src / "tools/deploy.py", "--home", home3, "--skip-tests", check=False), "不覆盖不是由 deploy 创建的目录")
+    out = run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", "--claude-hooks")
+    s = json.loads(read(home2 / ".claude/settings.json"))
+    check(set(s["hooks"]) == {"SessionStart", "Stop", "SessionEnd"}, "--claude-hooks 把 hook 写进 settings.json", out)
+    run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", "--claude-hooks")
+    s = json.loads(read(home2 / ".claude/settings.json"))
+    check(len(s["hooks"]["Stop"]) == 1, "重复写入 hook 不会产生重复项")
 
     print(f"\n全部通过：{passed} 项检查")
     if "--keep" in sys.argv:

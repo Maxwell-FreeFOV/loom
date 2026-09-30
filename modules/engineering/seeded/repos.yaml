@@ -1,8 +1,0 @@
-# 本项目关联的代码库。每个代码库是独立的 git 仓库，放在 repos/ 下，外层知识库不跟踪其内容。
-# 修改后运行：{{PYTHON}} scripts/sync_repos.py
-repos:
-  # - name: my-service                                  # 名称
-  #   path: repos/my-service                            # 本地路径（相对知识库根目录），默认 repos/<名称>
-  #   remote: https://github.com/you/my-service.git     # 远端地址；只在本地的仓库留空
-  #   branch: main                                      # 克隆时检出的分支
-  #   role: 后端服务                                    # 用途
