@@ -1,0 +1,5 @@
+{
+  "description": "工程开发：repos/ 代码库管理（repos.yaml + sync_repos.py，为代码库注入对话导出 hook）、设计文档与 ADR 模板",
+  "requires": [],
+  "dirs": ["repos"]
+}
