@@ -124,11 +124,17 @@ def install_claude_hooks(home, canonical):
     run = f'bash "{canonical.as_posix()}/scripts/run.sh"'
     wanted = {
         "SessionStart": {"type": "command", "command": f"{run} kb session-start", "timeout": 20},
-        "Stop": {"type": "command", "command": f"{run} export_session", "timeout": 30},
         "SessionEnd": {"type": "command", "command": f"{run} export_session", "timeout": 30},
     }
     hooks = data.setdefault("hooks", {})
     added = []
+    # 0.1.1 起不再用 Stop hook 导出（会让刚提交的 raw 文件马上又变脏），清理旧版写入的项
+    stale = [g for g in hooks.get("Stop", []) if any(h.get("command") == f"{run} export_session" for h in g.get("hooks", []))]
+    if stale:
+        hooks["Stop"] = [g for g in hooks["Stop"] if g not in stale]
+        if not hooks["Stop"]:
+            del hooks["Stop"]
+        added.append("移除 Stop")
     for event, hook in wanted.items():
         groups = hooks.setdefault(event, [])
         if hook["command"] not in [h.get("command") for g in groups for h in g.get("hooks", [])]:
@@ -139,7 +145,7 @@ def install_claude_hooks(home, canonical):
             shutil.copy2(settings, settings.with_name("settings.json.bak-loom"))
         settings.parent.mkdir(parents=True, exist_ok=True)
         settings.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        return f"- 已在 {settings} 中加入 hook：{', '.join(added)}（原文件备份为 settings.json.bak-loom）"
+        return f"- 已更新 {settings} 中的 hook：{', '.join(added)}（原文件备份为 settings.json.bak-loom）"
     return f"- {settings} 中已有 loom 的 hook"
 
 
