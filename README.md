@@ -36,7 +36,8 @@ py tools/deploy.py            # 或 python3 tools/deploy.py
 | 操作 | 作用 |
 |---|---|
 | `wrapup` | 讨论结束时，归档会话：写纪要和决策记录，更新 wiki、时间线、路线图和 hot.md |
-| `ingest` | 导入资料：原件存入 `raw/`，登记到资料清单，写资料卡，整合进 wiki |
+| `ingest` | 导入资料：原件存入 `raw/`，登记到资料清单，写资料卡，整合进 wiki。也用来导入合作者发布的快照 |
+| `publish` | 把可公开的内容发布成快照（一个 zip）分享给合作者：不含对话、纪要、决策记录和历史，发布前由 AI 审阅、你确认 |
 | `lint` | 知识库体检：死链、孤立页、未登记的资料、未归档的会话、到期的决策 |
 | `module` | 启用新模块：research、engineering、outputs |
 | `migrate` | Loom 升级后，迁移项目结构 |
@@ -61,7 +62,7 @@ py tools/deploy.py            # 或 python3 tools/deploy.py
 
 | 能力 | Claude Code | Codex、Gemini CLI、Cursor 等 |
 |---|---|---|
-| 初始化、归档、导入资料、体检、模块、迁移 | ✅ | ✅（需要 AI 能执行本地命令） |
+| 初始化、归档、导入资料、发布快照、体检、模块、迁移 | ✅ | ✅（需要 AI 能执行本地命令） |
 | 会话结束时自动导出对话 | ✅ 由 hook 完成 | ❌ 对话不会进入 `40-Sessions/raw/`，靠会话纪要留存 |
 | 会话开始时自动注入 hot.md 和提醒 | ✅ 由 hook 完成 | ❌ 靠 `AGENTS.md` 中的提示，由 AI 自己去读 |
 | 执行 Loom 操作时补导出之前的对话 | ✅ | ❌（目前只支持 Claude Code 的会话记录格式） |

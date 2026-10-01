@@ -2,6 +2,19 @@
 
 版本号遵循语义化版本。项目结构的变化用结构版本（schema）单独标记，迁移说明见 `skills/loom/references/migrate.md`。
 
+## 0.3.0 · 2026-10-01
+
+新增：把知识库分享给合作者。对方拿到的是一个快照 zip，接触不到知识库本身；对方的更新通过 ingest 进入你的知识库。
+
+- 新操作 `publish`（`references/publish.md`）和脚本 `snapshot.py`：
+  - `snapshot.py plan` 预览要发布的文件（相对上一份快照标注新、改、未变）、被排除的笔记和需要留意的内容；`snapshot.py build` 生成 zip，默认写到 `50-Outputs/_exports/`。
+  - 快照只包含当前的状态和结果。`40-Sessions/`（对话、纪要、决策记录）、timeline、log、index、inbox 和 `_exports/` 硬性排除，不能通过配置打开。
+  - 发布范围写在 `.kb.json` 的可选键 `publish` 中（`include`、`exclude`、`strip_fields`、`strip_sections`），没有配置时使用默认值。单篇笔记可以用 frontmatter 的 `publish: false` 或 `publish: true` 覆盖。状态不是 `released` 的产出物默认不发布。
+  - 清洗只作用于快照中的副本：删除指定的 frontmatter 字段和段落，把指向未发布笔记的链接改成纯文本。
+  - 发布前由 AI 审阅新增和修改的笔记，用户确认后才生成。
+- `ingest` 支持别人发布的快照：整个快照算一份资料；`snapshot.py open` 解压、和同一项目的上一份快照比较、生成同名的提取文本；只读新增和修改的文件；已有的内容不重复整合；和已有内容冲突时先问用户再写入。
+- 项目结构版本不变，不需要迁移。
+
 ## 0.2.1 · 2026-09-30
 
 - 修复：wrapup、init 等操作提交后，Claude 的最后一条回复会让刚提交的原始对话文件马上又显示为已修改。

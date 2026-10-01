@@ -1,10 +1,10 @@
 ---
 name: loom
-description: Loom 项目知识库：在一个项目文件夹里和 AI 协同推进想法、研究或工程，把讨论、资料、决策、产出物和对话历史沉淀为 Obsidian 知识库，让 AI 始终有完整上下文。用于：用 Loom 初始化新项目（"用 Loom 初始化这个项目"、"loom init"）；在 Loom 项目（根目录或上级目录有 .kb.json）中归档会话（总结、收尾、归档、wrapup）、导入资料或网页（ingest）、知识库体检（lint）、启用研究/工程/产出物模块、结构迁移、项目暂停或结束（close）。除初始化外，只在 Loom 项目中使用。
+description: Loom 项目知识库：在一个项目文件夹里和 AI 协同推进想法、研究或工程，把讨论、资料、决策、产出物和对话历史沉淀为 Obsidian 知识库，让 AI 始终有完整上下文。用于：用 Loom 初始化新项目（"用 Loom 初始化这个项目"、"loom init"）；在 Loom 项目（根目录或上级目录有 .kb.json）中归档会话（总结、收尾、归档、wrapup）、导入资料、网页或别人的知识库快照（ingest）、把可公开的内容发布成快照分享给合作者（publish）、知识库体检（lint）、启用研究/工程/产出物模块、结构迁移、项目暂停或结束（close）。除初始化外，只在 Loom 项目中使用。
 license: MIT
 compatibility: 需要本机 Python 3 和 git。对话自动归档目前只支持 Claude Code 的会话记录。
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # Loom
@@ -32,7 +32,8 @@ $PY "$LOOM/scripts/loom.py" status
 |---|---|---|
 | 把当前文件夹初始化为 Loom 项目 | init | `references/init.md` |
 | 结束讨论、总结、归档、补归档 | wrapup | `references/wrapup.md` |
-| 导入资料、存网页、消化文档 | ingest | `references/ingest.md` |
+| 导入资料、存网页、消化文档、导入别人发布的快照 | ingest | `references/ingest.md` |
+| 把知识库分享给别人、发布快照 | publish | `references/publish.md` |
 | 检查知识库 | lint | `references/lint.md` |
 | 启用研究、工程、产出物等模块 | module | `references/module.md` |
 | 项目结构需要迁移 | migrate | `references/migrate.md` |
@@ -58,5 +59,7 @@ $PY "$LOOM/scripts/loom.py" status
 | `loom.py migrate [--dry-run]` | 结构迁移 |
 | `loom.py doctor` | 检查项目和本机环境 |
 | `kb.py index` / `lint` / `unarchived` | 刷新索引 / 体检 / 列出未归档的会话 |
+| `snapshot.py plan` / `build` | 预览 / 生成对外发布的知识库快照 |
+| `snapshot.py open <zip>` | 打开别人发布的快照，并和上一份比较 |
 | `export_session.py --all` | 补导出本项目的全部 Claude Code 会话 |
 | `sync_repos.py [--pull]` | 按 `repos.yaml` 克隆或更新代码库 |
