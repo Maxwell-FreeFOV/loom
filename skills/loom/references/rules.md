@@ -19,7 +19,7 @@
 | `20-Sources/` | `inbox/`：待处理资料<br>`raw/`：原始资料<br>`cards/`：资料卡<br>`sources-index.md`：资料清单 | core | `raw/` 只增不改 |
 | `30-Wiki/` | AI 维护的知识页：概念、调研结论、方案对比等。research 模块另有 `literature/`（文献卡）和 `experiments/`（实验记录） | core / research | 可读写 |
 | `40-Sessions/` | `raw/`：原始对话（自动导出）<br>`notes/`：会话纪要<br>`decisions/`：决策记录 | core | `raw/` 只读 |
-| `50-Outputs/` | 给别人看的产出物，每份一个子目录；`_exports/` 存放导出的 PDF 和 DOCX | outputs | 可读写 |
+| `50-Outputs/` | 给别人看的产出物，每份一个子目录；`_exports/` 存放导出的 PDF、DOCX 和知识库快照 | outputs | 可读写 |
 | `repos/`、`repos.yaml` | 关联的代码库。每个都是独立的 git 仓库，外层仓库不跟踪 | engineering | 遵循各代码库自己的规范 |
 | `90-Templates/` | 可选。放在这里的同名模板会覆盖 Loom 默认模板 | — | 按用户意愿 |
 | `AGENTS.md`、`CLAUDE.md` | 项目指令。`CLAUDE.md` 只负责引用 `AGENTS.md`；`AGENTS.md` 中有一段由 Loom 维护的区块 | — | 区块之外可以修改 |
@@ -77,6 +77,7 @@
 - 网络调研中值得留存的网页，保存为 `raw/` 下的 Markdown，frontmatter 中写明 `url` 和抓取日期，然后登记。
 - 资料很多时分批消化，在 `sources-index.md` 的状态列中标记为"待读"、"已编目"或"已消化"。
 - 引用外部资料要注明出处。自己的推断要标注为推断，不要把推断写成资料的原话。
+- 合作者发来的知识库快照（zip 中有 `loom-snapshot.json`）也是资料，同样用 ingest 处理：已有的内容不重复整合，和已有内容冲突时先问用户。
 
 ## 7. 对话记录、时间线与路线图
 
@@ -113,6 +114,10 @@
   3. 提交后打 tag，格式为 `<文档名>/v<版本>`；
   4. 在 timeline 中记录。
 - 导出的 PDF、DOCX 放在 `50-Outputs/_exports/`，文件名带上版本号。
+- 把知识库分享给别人时，不要给出知识库本身或它的 git 仓库，用 loom 的 publish 发布快照：
+  - 快照只包含当前的状态和结果。`40-Sessions/`（对话、纪要、决策记录）、timeline 和 log 永远不会进入快照。
+  - 发布范围写在 `.kb.json` 的 `publish` 中；单篇笔记可以在 frontmatter 中写 `publish: false` 排除。
+  - 发布前由 AI 审阅、用户确认。
 
 ## 10. 代码库（engineering 模块）
 
@@ -127,7 +132,7 @@
 ## 11. git
 
 - 知识库根目录是一个 git 仓库，`repos/` 不纳入其中。
-- wrapup、ingest、lint、close、migrate 完成后各提交一次，提交信息以动作开头，例如 `wrapup: 主题`。其他时候只在用户要求时提交。
+- wrapup、ingest、publish、lint、close、migrate 完成后各提交一次，提交信息以动作开头，例如 `wrapup: 主题`。其他时候只在用户要求时提交。
 - 资料默认全部进入本地仓库。某些文件不想提交时，由用户修改 `.gitignore`。
 
 ## 12. Loom 本身

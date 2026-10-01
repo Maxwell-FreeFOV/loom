@@ -6,8 +6,8 @@
 skills/loom/                   要安装的 skill（部署时只导出这个目录）
   SKILL.md                     入口：检查状态，按意图分派到 references/ 中的说明
   VERSION                      版本号（需与 SKILL.md 的 metadata.version、.claude-plugin/plugin.json 保持一致）
-  references/                  rules.md（通用规则），以及各操作的说明：init、wrapup、ingest、lint、module、migrate、close
-  scripts/                     loom.py、kb.py、export_session.py、sync_repos.py、kbroot.py（共享）、run.sh（hook 启动器）
+  references/                  rules.md（通用规则），以及各操作的说明：init、wrapup、ingest、publish、lint、module、migrate、close
+  scripts/                     loom.py、kb.py、export_session.py、snapshot.py、sync_repos.py、kbroot.py（共享）、run.sh（hook 启动器）
   assets/templates/notes/      笔记模板
   assets/templates/project/<模块>/   init 和 module add 时生成的项目文件，以及 module.json
   assets/templates/loom-block.md     AGENTS.md 中 Loom 区块的内容

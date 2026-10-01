@@ -1,4 +1,4 @@
-"""Loom 端到端测试：在临时目录中模拟初始化、会话导出与归档、hook、模块、代码库、模板、迁移和部署。
+"""Loom 端到端测试：在临时目录中模拟初始化、会话导出与归档、hook、模块、代码库、模板、快照、迁移和部署。
 
 用法：py tests/smoke_test.py [--keep]
   直接使用工作区中的 skills/loom（部署测试除外，它使用一个临时 clone 中已提交的内容）。
@@ -12,6 +12,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import zipfile
+from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -62,6 +64,20 @@ def loom(cwd, *args, check=True, env=None):
 
 def kb(cwd, *args, **kw):
     return run(PY, SCRIPTS / "kb.py", *args, cwd=cwd, **kw)
+
+
+def snapshot(cwd, *args, check=True):
+    return run(PY, SCRIPTS / "snapshot.py", *args, cwd=cwd, check=check)
+
+
+def zip_names(path):
+    with zipfile.ZipFile(path) as z:
+        return set(z.namelist())
+
+
+def zip_text(path, name):
+    with zipfile.ZipFile(path) as z:
+        return z.read(name).decode("utf-8")
 
 
 def hook(script, project_dir, stdin=b"", env=None):
@@ -163,6 +179,114 @@ def test_tail(tmp):
     r = hook("kb session-start", p, stdin=json.dumps({"session_id": "77777777-now"}).encode(), env=env)
     check(r.returncode == 0 and status() == "" and "wrapup: 上一次" in git(p, "log", "-1", "--format=%s"),
           "SessionStart 兜底：上次会话没触发 SessionEnd，尾巴也会并入", status() + r.stderr.decode("utf-8", "replace"))
+
+
+def note(type_, title, extra=""):
+    return f"---\ntype: {type_}\ntitle: {title}\ncreated: 2026-10-01\nupdated: 2026-10-01\ntags: []\n{extra}---\n\n# {title}\n\n"
+
+
+def test_snapshot(tmp):
+    print("快照：发布")
+    a = tmp / "share-a"
+    a.mkdir()
+    loom(a, "init", "--name", "甲 项目", "--summary", "发布方", "--modules", "outputs")
+    write(a / "30-Wiki/概念.md", note("wiki", "概念", 'raws: ["[[2026-10-01_0900_abcd]]"]\nsources: ["[[2026-10-01_讨论]]"]\n')
+          + "结论一。见 [[细节]]、[[DR-2026-001_选型|选型决定]] 和 [[2026-10-01_讨论]]。\n\n`[[代码里的不算]]`\n\n"
+            "## 变更记录\n\n- 2026-10-01：创建\n\n### 更早\n\n- 旧\n")
+    write(a / "30-Wiki/细节.md", note("wiki", "细节") + "正文。\n\n## 变更记录\n\n- x\n\n## 相关\n\n- [[概念]]\n")
+    write(a / "30-Wiki/内部.md", note("wiki", "内部", "publish: false\n") + "不公开的判断。\n")
+    write(a / "40-Sessions/notes/2026-10-01_讨论.md", note("session", "讨论") + "过程。\n")
+    write(a / "40-Sessions/decisions/DR-2026-001_选型.md", note("decision", "选型", "publish: true\n") + "理由。\n")
+    write(a / "40-Sessions/raw/2026-10/2026-10-01_0900_abcd.md", "---\ntype: raw\n---\n对话原文\n")
+    write(a / "50-Outputs/报告/报告.md",
+          note("output", "报告", 'status: released\nversion: 1.0\ndecisions: ["[[DR-2026-001_选型]]"]\nsources: ["[[概念]]"]\n')
+          + "正文。\n\n## 版本历史\n\n| 版本 |\n|---|\n| 1.0 |\n")
+    write(a / "50-Outputs/草稿/草稿.md", note("output", "草稿", "status: draft\nversion: 0.1\n"))
+    write(a / "50-Outputs/_exports/报告-v1.0.pdf", "pdf")
+    exports = a / "50-Outputs/_exports"
+
+    plan = snapshot(a, "plan")
+    check("默认值" in plan and "[新] 30-Wiki/概念.md" in plan and "30-Wiki/内部.md：笔记标了 publish: false" in plan
+          and "50-Outputs/草稿/草稿.md：产出物的状态是 draft" in plan, "plan 按默认规则列出要发布和被排除的笔记", plan)
+    check(not list(exports.glob("*.zip")), "plan 不写任何文件")
+
+    snapshot(a, "build")
+    z1 = next(exports.glob("*.zip"))
+    names = zip_names(z1)
+    check(z1.name == f"甲-项目-快照-{date.today()}.zip"
+          and {"loom-snapshot.json", "快照说明.md", "30-Wiki/概念.md", "30-Wiki/细节.md", "50-Outputs/报告/报告.md",
+               "10-Brief/项目简报.md", "00-Hub/roadmap.md"} <= names,
+          "build 生成 zip：包含 wiki、简报、已发布的产出物、roadmap、清单和说明", names)
+    check(not any(n.startswith(("40-Sessions/", "50-Outputs/_exports/", "50-Outputs/草稿/"))
+                  or n in ("30-Wiki/内部.md", "00-Hub/timeline.md", "00-Hub/log.md", "00-Hub/hot.md") for n in names),
+          "快照不含对话、纪要、决策记录（标了 publish: true 也不行）、时间线、日志、草稿和 publish: false 的笔记", names)
+    text = zip_text(z1, "30-Wiki/概念.md")
+    check("raws:" not in text and "变更记录" not in text and "更早" not in text and "结论一" in text,
+          "清洗：去掉 raws 字段和变更记录段落（含子段落）", text)
+    check("[[细节]]" in text and "选型决定" in text and "[[DR-2026-001" not in text and "[[2026-10-01_讨论]]" not in text
+          and "2026-10-01_讨论" in text and "`[[代码里的不算]]`" in text,
+          "清洗：指向未发布笔记的链接转为纯文本，指向已发布笔记的和代码里的保留", text)
+    text = zip_text(z1, "50-Outputs/报告/报告.md")
+    check("decisions:" not in text and "版本历史" not in text and "[[概念]]" in text, "清洗：去掉 decisions 字段和版本历史", text)
+    text = zip_text(z1, "30-Wiki/细节.md")
+    check("变更记录" not in text and "## 相关" in text, "删除段落后，后面的同级段落保留", text)
+    manifest = json.loads(zip_text(z1, "loom-snapshot.json"))
+    check(manifest["project"] == "甲 项目" and manifest["loom_snapshot"] == 1
+          and set(manifest["files"]) == names - {"loom-snapshot.json", "快照说明.md"}, "清单记录了项目名和每个文件的校验值")
+    check("raws:" in read(a / "30-Wiki/概念.md") and "变更记录" in read(a / "30-Wiki/概念.md"), "知识库中的源文件没有被改动")
+
+    kb_file = read(a / ".kb.json")
+    meta = json.loads(kb_file)
+    meta["publish"] = {"include": ["30-Wiki/", "00-Hub/hot.md", "40-Sessions/"], "exclude": ["30-Wiki/细节.md"]}
+    write(a / ".kb.json", json.dumps(meta, ensure_ascii=False))
+    plan = snapshot(a, "plan")
+    check("来自 .kb.json" in plan and "[新] 00-Hub/hot.md" in plan and "30-Wiki/细节.md：匹配 exclude" in plan
+          and "[改] 30-Wiki/概念.md" in plan and "- 10-Brief/项目简报.md" in plan,
+          "plan 按 .kb.json 的 publish 规则计算，并和上一份快照比较", plan)
+    check("`40-Sessions/` 属于硬性排除" in plan and "40-Sessions/notes" not in plan, "配置也不能打开硬性排除的目录", plan)
+    write(a / ".kb.json", kb_file)
+
+    write(a / "30-Wiki/细节.md", read(a / "30-Wiki/细节.md").replace("正文。", "正文，有更新。"))
+    plan = snapshot(a, "plan")
+    check("[改] 30-Wiki/细节.md" in plan and "[未变] 30-Wiki/概念.md" in plan, "修改笔记后，plan 只把它标为改", plan)
+    snapshot(a, "build")
+    z2 = exports / f"{z1.stem}-2.zip"
+    check(z2.is_file(), "同一天再次发布，文件名加序号")
+
+    print("快照：导入")
+    b = tmp / "share-b"
+    b.mkdir()
+    loom(b, "init", "--name", "乙项目")
+    raw = b / "20-Sources/raw/2026-10"
+    raw.mkdir(parents=True)
+    shutil.copy(z1, raw / z1.name)
+    out = snapshot(b, "open", raw / z1.name)
+    dest = Path(re.search(r"已解压到：(.+)", out).group(1).strip())
+    check("没有找到同一项目的上一份快照" in out and f"## 新增（{len(manifest['files'])}）" in out
+          and "结论一" in read(dest / "30-Wiki/概念.md"), "open 把快照解压到临时目录，全部列为新增", out)
+    shutil.rmtree(dest)
+    extracted = raw / f"{z1.stem}.md"
+    check(extracted.is_file() and "type: source" in read(extracted) and "## 30-Wiki/概念.md" in read(extracted)
+          and "结论一" in read(extracted), "open 在 zip 旁边生成同名的提取文本")
+    write(b / "20-Sources/sources-index.md", read(b / "20-Sources/sources-index.md")
+          + f"| S001 | [[{z1.stem}]] | 知识库快照 | 甲 项目 | 2026-10-01 | 已消化 | 对方的快照 |\n")
+    lint = kb(b, "lint")
+    check("✅" in lint, "整个快照在资料清单中登记一行，lint 通过", lint)
+    shutil.copy(z2, raw / z2.name)
+    out = snapshot(b, "open", raw / z2.name)
+    check(f"上一份快照：{z1.name}" in out and "## 修改（1）" in out and "- 30-Wiki/细节.md" in out and "## 新增（0）" in out,
+          "导入第二份快照时，只列出相对上一份的变化", out)
+    shutil.rmtree(Path(re.search(r"已解压到：(.+)", out).group(1).strip()))
+
+    evil = tmp / "evil.zip"
+    with zipfile.ZipFile(evil, "w") as z:
+        z.writestr("loom-snapshot.json", json.dumps({"loom_snapshot": 1, "project": "x", "files": {}}))
+        z.writestr("../evil.md", "x")
+    check("不安全的路径" in snapshot(b, "open", evil, check=False), "拒绝解压含 ../ 路径的快照")
+    plain = tmp / "plain.zip"
+    with zipfile.ZipFile(plain, "w") as z:
+        z.writestr("a.md", "x")
+    check("不是 Loom 快照" in snapshot(b, "open", plain, check=False), "没有清单的 zip 不当作快照")
 
 
 def main():
@@ -284,6 +408,7 @@ def main():
     write(p1 / "90-Templates/会话纪要.md", "---\ntype: session\ntitle: 自定义\n---\n")
     check(Path(loom(p1, "template", "会话纪要").strip()) == p1 / "90-Templates/会话纪要.md", "项目中的同名模板优先")
     check("可用模板" in loom(p1, "template", "不存在", check=False), "模板不存在时列出可用模板")
+    test_snapshot(tmp)
 
     print("S2 从已有资料起步")
     p2 = tmp / "materials"
