@@ -2,6 +2,14 @@
 
 版本号遵循语义化版本。项目结构的变化用结构版本（schema）单独标记，迁移说明见 `skills/loom/references/migrate.md`。
 
+## 0.2.1 · 2026-09-30
+
+- 修复：wrapup、init 等操作提交后，Claude 的最后一条回复会让刚提交的原始对话文件马上又显示为已修改。
+  - 去掉 `Stop` hook（每轮回复后导出），只在会话结束时（`SessionEnd`）导出。会话中途由 `loom.py status` 补导出，提交时内容仍是最新的。
+  - 会话结束时，如果最新提交就是提交过这个文件的那次提交，且未推送、没有 tag，就用 `git commit --amend --only` 把提交之后的对话尾巴并入它；否则留给下一次提交。
+  - SessionStart 兜底：最近 3 天内没触发 SessionEnd 的会话（崩溃、直接关窗口），在下次会话开始时补导出并做同样的收尾。
+  - `deploy.py --claude-hooks` 会清理旧版写入的 `Stop` hook。
+
 ## 0.2.0 · 2026-09-30
 
 **架构调整（不兼容）**：Loom 由"安装到每个项目中"改为"全局安装的 Agent Skill"。项目中只保存数据。

@@ -1,6 +1,6 @@
 {
   "name": "loom",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Loom 在 Claude Code 中的增强层：会话结束时自动导出对话，会话开始时注入项目上下文。只在含 .kb.json 的 Loom 项目中生效，其他工具会忽略这个目录。",
   "author": {
     "name": "Loom"

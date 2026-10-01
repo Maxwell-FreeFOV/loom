@@ -12,7 +12,7 @@ skills/loom/                   要安装的 skill（部署时只导出这个目�
   assets/templates/project/<模块>/   init 和 module add 时生成的项目文件，以及 module.json
   assets/templates/loom-block.md     AGENTS.md 中 Loom 区块的内容
   .claude-plugin/plugin.json   Claude Code 增强层：让 skill 目录同时作为插件 loom@skills-dir 加载
-  hooks/hooks.json             SessionStart、Stop、SessionEnd，都通过 run.sh 调用
+  hooks/hooks.json             SessionStart、SessionEnd，都通过 run.sh 调用（不用 Stop，见 export_session.py 文件头）
 tools/deploy.py                部署到本机
 tests/smoke_test.py            端到端测试
 ```

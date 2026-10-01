@@ -1,8 +1,10 @@
 """把 Claude Code 会话记录（JSONL）导出为 Markdown，存入知识库的 40-Sessions/raw/YYYY/MM/。属于 Loom skill。
 
 用法：
-  1. 作为 Claude Code 的 Stop / SessionEnd hook：从 stdin 读取 hook JSON，取其中的 transcript_path 和 cwd，
-     从 cwd 向上找到知识库（.kb.json）。不在 Loom 项目中时什么也不做。
+  1. 作为 Claude Code 的 SessionEnd hook：从 stdin 读取 hook JSON，取其中的 transcript_path 和 cwd，
+     从 cwd 向上找到知识库（.kb.json）。不在 Loom 项目中时什么也不做。导出后如果这次会话中途已经提交过
+     这个文件，把提交之后的对话尾巴并入该提交（见 settle_tail）。
+     不用 Stop hook：每轮都导出会让刚提交的文件马上又变脏。会话中途的导出由 loom.py status 完成。
   2. 补导出本项目的全部会话（包括在 repos/<名称>/ 等子目录中启动的）：python export_session.py --all
   3. 导出指定的记录文件：python export_session.py <transcript.jsonl> [...]
   以上 2、3 可以加 --root <知识库根目录>，默认从当前目录向上查找。
@@ -12,7 +14,9 @@
 """
 import json
 import re
+import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -157,6 +161,26 @@ def export(path):
     return target
 
 
+def git(*args):
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, encoding="utf-8")
+
+
+def settle_tail(target):
+    """会话在提交之后还有对话（至少有一句"已提交"），导出后已提交的 raw 文件会又变脏。
+    如果 HEAD 就是提交过这个文件的那次提交，且未推送、没有 tag，把尾巴并入 HEAD，保持工作区干净。
+    条件不满足或任何一步失败，就把改动留给下一次提交。"""
+    rel = target.relative_to(ROOT).as_posix()
+    if git("ls-files", "--error-unmatch", "--", rel).returncode != 0:
+        return False  # 未跟踪：还没提交过，不是"尾巴"
+    if git("diff", "--quiet", "HEAD", "--", rel).returncode != 1:
+        return False
+    if not git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD", "--", rel).stdout.strip():
+        return False  # HEAD 没动过这个文件，不往无关的提交里塞
+    if git("branch", "-r", "--contains", "HEAD").stdout.strip() or git("tag", "--points-at", "HEAD").stdout.strip():
+        return False
+    return git("commit", "--amend", "--no-edit", "--only", "--", rel).returncode == 0
+
+
 def transcript_cwd(path):
     with open(path, encoding="utf-8") as f:
         for i, line in enumerate(f):
@@ -189,6 +213,21 @@ def project_transcripts():
             if name == slug or (cwd and launched_in(cwd)):
                 found.append(f)
     return found
+
+
+def settle_recent(current_session=None, days=3):
+    """SessionStart 兜底：上一次会话可能没触发 SessionEnd（崩溃、直接关窗口），
+    把最近几天内的其他会话导出并收尾。只看最近的记录，保证在 hook 超时内完成。"""
+    cutoff = time.time() - days * 86400
+    for p in project_transcripts():
+        if p.stem == current_session or p.stat().st_mtime < cutoff:
+            continue
+        try:
+            target = export(p)
+            if target:
+                settle_tail(target)
+        except Exception as e:  # hook 不能因导出失败而打断会话
+            print(f"export failed for {p}: {e}", file=sys.stderr)
 
 
 def set_root(root):
@@ -226,6 +265,8 @@ def main():
             target = export(p)
             if target and args:
                 print(target.relative_to(ROOT).as_posix())
+            elif target:
+                settle_tail(target)
         except Exception as e:  # hook 不能因导出失败而打断会话
             print(f"export failed for {p}: {e}", file=sys.stderr)
 

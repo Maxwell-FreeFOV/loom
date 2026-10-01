@@ -83,6 +83,13 @@ def transcript(path, session_id, cwd, text="我们来讨论第一个问题"):
     write(path, "\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n")
 
 
+def append_turn(path, text, ts):
+    session_id = json.loads(read(path).splitlines()[0])["sessionId"]
+    line = {"type": "assistant", "sessionId": session_id, "timestamp": ts,
+            "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+    write(path, read(path) + json.dumps(line, ensure_ascii=False) + "\n")
+
+
 def slug(p):
     return re.sub(r"[^A-Za-z0-9]", "-", str(p)).lower()
 
@@ -102,11 +109,60 @@ def test_package():
     check(json.loads(read(SKILL / ".claude-plugin/plugin.json"))["version"] == version
           and f'version: "{version}"' in read(SKILL / "SKILL.md"), "VERSION、plugin.json、SKILL.md 的版本号一致")
     hooks = json.loads(read(SKILL / "hooks/hooks.json"))["hooks"]
-    check(set(hooks) == {"SessionStart", "Stop", "SessionEnd"}
+    check(set(hooks) == {"SessionStart", "SessionEnd"}
           and all("${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" in g["hooks"][0]["command"] for v in hooks.values() for g in v),
-          "hooks.json 的三个 hook 都通过 run.sh 调用")
+          "hooks.json 只有 SessionStart、SessionEnd，都通过 run.sh 调用（不用 Stop）")
     refs = re.findall(r"`references/(\w+)\.md`", read(SKILL / "SKILL.md"))
     check(refs and all((SKILL / "references" / f"{r}.md").is_file() for r in refs), "SKILL.md 引用的说明文件都存在")
+
+
+def test_tail(tmp):
+    print("会话尾巴：提交之后的对话并入那次提交")
+    p = tmp / "tail"
+    p.mkdir()
+    loom(p, "init", "--name", "尾巴测试", "--summary", "测试会话尾巴")
+    git(p, "init", "-q")
+    git(p, "config", "user.name", "loom-test")
+    git(p, "config", "user.email", "loom-test@example.com")
+    commit(p, "init")
+    t = tmp / "tail.jsonl"
+    transcript(t, "55555555-tail", p)
+    end = json.dumps({"transcript_path": str(t), "cwd": str(p)}).encode()
+    hook("export_session", p, stdin=end)
+    rel = next((p / "40-Sessions/raw").rglob("*.md")).relative_to(p).as_posix()
+    commit(p, "wrapup: 测试")
+    count = git(p, "rev-list", "--count", "HEAD")
+    status = lambda: git(p, "status", "--porcelain").strip()
+
+    append_turn(t, "已经提交了。", "2026-09-30T02:05:00Z")
+    hook("export_session", p, stdin=end)
+    check(status() == "" and git(p, "rev-list", "--count", "HEAD") == count
+          and "已经提交了" in git(p, "show", f"HEAD:{rel}") and "wrapup: 测试" in git(p, "log", "-1", "--format=%s"),
+          "会话结束时尾巴并入 wrapup 提交，提交数不变，工作区干净", status())
+
+    write(p / "30-Wiki/别的.md", "---\ntitle: 别的\n---\n")
+    commit(p, "别的提交")
+    append_turn(t, "尾巴二。", "2026-09-30T02:06:00Z")
+    hook("export_session", p, stdin=end)
+    check(rel in status() and "别的提交" in git(p, "log", "-1", "--format=%s"), "最新提交没动过这个文件时不并入，留给下次提交", status())
+
+    commit(p, "wrapup: 第二次")
+    git(p, "tag", "设计文档/v1.0")
+    append_turn(t, "尾巴三。", "2026-09-30T02:07:00Z")
+    hook("export_session", p, stdin=end)
+    check(rel in status(), "最新提交打了 tag 时不并入", status())
+    git(p, "tag", "-d", "设计文档/v1.0")
+
+    home = tmp / "home-tail"
+    prev = home / ".claude" / "projects" / slug(p) / "66666666-prev.jsonl"
+    transcript(prev, "66666666-prev", p, "上一次会话")
+    env = {**os.environ, "USERPROFILE": str(home), "HOME": str(home)}
+    hook("export_session", p, stdin=json.dumps({"transcript_path": str(prev), "cwd": str(p)}).encode())
+    commit(p, "wrapup: 上一次")
+    append_turn(prev, "没有触发 SessionEnd 的尾巴。", "2026-09-30T02:08:00Z")
+    r = hook("kb session-start", p, stdin=json.dumps({"session_id": "77777777-now"}).encode(), env=env)
+    check(r.returncode == 0 and status() == "" and "wrapup: 上一次" in git(p, "log", "-1", "--format=%s"),
+          "SessionStart 兜底：上次会话没触发 SessionEnd，尾巴也会并入", status() + r.stderr.decode("utf-8", "replace"))
 
 
 def main():
@@ -159,12 +215,13 @@ def main():
     transcript(fake, "abcd1234-0000", demo)
     r = hook("export_session", demo, stdin=json.dumps({"transcript_path": str(fake), "cwd": str(demo)}).encode())
     raws = list((p1 / "40-Sessions/raw").rglob("*.md"))
-    check(r.returncode == 0 and len(raws) == 1, "在 repos/demo 中启动的会话，Stop hook 把对话导出到知识库",
+    check(r.returncode == 0 and len(raws) == 1, "在 repos/demo 中启动的会话，SessionEnd hook 把对话导出到知识库",
           r.stderr.decode("utf-8", "replace"))
     check("launched_in: repos/demo" in read(raws[0]), "导出的对话记录了启动目录")
     hook("export_session", demo, stdin=json.dumps({"transcript_path": str(fake), "cwd": str(demo)}).encode())
     check(len(list((p1 / "40-Sessions/raw").rglob("*.md"))) == 1, "重复导出覆盖同一个文件")
     shutil.rmtree(p1 / "repos")
+    test_tail(tmp)
 
     print("补导出与归档")
     home = tmp / "home"
@@ -314,10 +371,18 @@ def main():
     check("不覆盖" in run(PY, src / "tools/deploy.py", "--home", home3, "--skip-tests", check=False), "不覆盖不是由 deploy 创建的目录")
     out = run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", "--claude-hooks")
     s = json.loads(read(home2 / ".claude/settings.json"))
-    check(set(s["hooks"]) == {"SessionStart", "Stop", "SessionEnd"}, "--claude-hooks 把 hook 写进 settings.json", out)
+    check(set(s["hooks"]) == {"SessionStart", "SessionEnd"}, "--claude-hooks 把 hook 写进 settings.json", out)
     run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", "--claude-hooks")
     s = json.loads(read(home2 / ".claude/settings.json"))
-    check(len(s["hooks"]["Stop"]) == 1, "重复写入 hook 不会产生重复项")
+    check(len(s["hooks"]["SessionEnd"]) == 1, "重复写入 hook 不会产生重复项")
+    run_sh = f'bash "{(home2 / ".agents/skills/loom").as_posix()}/scripts/run.sh"'
+    other = {"type": "command", "command": "echo 别人的 Stop hook"}
+    s["hooks"]["Stop"] = [{"hooks": [{"type": "command", "command": f"{run_sh} export_session", "timeout": 30}]},
+                          {"hooks": [other]}]
+    write(home2 / ".claude/settings.json", json.dumps(s, ensure_ascii=False))
+    out = run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", "--claude-hooks")
+    s = json.loads(read(home2 / ".claude/settings.json"))
+    check(s["hooks"]["Stop"] == [{"hooks": [other]}], "--claude-hooks 清理旧版的 Stop 导出 hook，保留别人的 Stop hook", out)
 
     print(f"\n全部通过：{passed} 项检查")
     if "--keep" in sys.argv:

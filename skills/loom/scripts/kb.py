@@ -6,6 +6,7 @@
   python kb.py unarchived     列出还没有被会话纪要引用的原始对话
   python kb.py session-start  Claude Code 的 SessionStart hook 使用：输出项目状态、通用规则、hot.md 和提醒
 """
+import json
 import os
 import re
 import sys
@@ -306,7 +307,23 @@ def reminders(notes):
     return out
 
 
+def settle_previous_sessions():
+    """作为 hook 调用时（stdin 是 hook JSON），补导出并收尾没有触发 SessionEnd 的上一次会话。"""
+    if sys.stdin is None or sys.stdin.isatty():
+        return
+    try:
+        hook = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return
+    if not hook.get("session_id"):
+        return
+    import export_session
+    export_session.set_root(ROOT)
+    export_session.settle_recent(hook["session_id"])
+
+
 def cmd_session_start():
+    settle_previous_sessions()
     kb = load_kb()
     notes = collect_notes()
     status = f"状态：{kb.get('status', 'active')}；模块：{', '.join(kb.get('modules', [])) or 'core'}"
