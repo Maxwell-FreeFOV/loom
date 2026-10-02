@@ -322,6 +322,13 @@ def main():
     lint = kb(deep, "lint")
     check("✅" in lint, "新项目 lint 通过", lint)
     check("不在 Loom 项目中" in kb(tmp, "index", check=False), "不在 Loom 项目中时报错")
+    write(p1 / "30-Wiki/引号甲.md", note("wiki", '采用"某方案"'))
+    write(p1 / "30-Wiki/引号乙.md", note("wiki", '"整个标题加了引号"'))
+    kb(p1, "index")
+    index = read(p1 / "00-Hub/index.md")
+    check('|采用"某方案"]]' in index and "|整个标题加了引号]]" in index, "标题以引号结尾时保留引号，成对包住整个值的引号去掉", index)
+    shutil.rmtree(p1 / "30-Wiki")
+    kb(p1, "index")
     status = loom(deep, "status", "--no-export")
     check(str(p1) in status and "需要迁移" not in status and "Loom 区块" not in status, "status 找到根目录，结构和区块都正常", status)
 
