@@ -56,13 +56,18 @@ def walk(prune):
             yield Path(dirpath) / name
 
 
+def unquote(v):
+    """只去掉成对包住整个值的引号；值本身以引号结尾时（例如 采用"某方案"）保持原样。"""
+    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
+
+
 def frontmatter(text):
     m = FM.match(text)
     meta = {}
     for line in (m.group(1).splitlines() if m else []):
         k, sep, v = line.partition(":")
         if sep and not line.startswith((" ", "\t", "-")):
-            meta[k.strip()] = v.split(" #")[0].strip().strip('"').strip("'")
+            meta[k.strip()] = unquote(v.split(" #")[0].strip())
     return meta, bool(m)
 
 
