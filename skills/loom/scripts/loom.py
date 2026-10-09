@@ -252,9 +252,12 @@ def block_state(root, lang):
 
 
 def git_dirty(root):
+    """工作区有没有未提交的改动。40-Sessions/raw/ 不算：那是 Loom 自己导出的原始对话，
+    status 每次都会补导出当前会话，算进来的话在会话里几乎永远是脏的。"""
     if not (root / ".git").exists():
         return None
-    r = subprocess.run(["git", "-C", str(root), "status", "--porcelain"], capture_output=True)
+    r = subprocess.run(["git", "-C", str(root), "status", "--porcelain", "--", ".", ":(exclude)40-Sessions/raw"],
+                       capture_output=True)
     return bool(r.stdout.strip())
 
 
