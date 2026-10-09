@@ -3,6 +3,7 @@ type: session
 title: {{title}}
 created: {{date}}
 updated: {{date}}
+summary: 
 tags: []
 raws: []
 decisions: []

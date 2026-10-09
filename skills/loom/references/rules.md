@@ -29,9 +29,9 @@
 
 ## 3. 上下文加载顺序
 
-1. 先读 `00-Hub/hot.md`。在 Claude Code 中，会话开始时 hook 已经注入了 hot.md 和提醒，可以跳过这一步。
+1. 先读 `00-Hub/hot.md`。在 Claude Code 中，会话开始时 hook 已经注入了 hot.md 和提醒，可以跳过这一步。hot.md 由 wrapup 维护，可能过期：注入内容或 `loom.py status` 里出现"hot.md 可能已经过期"时，涉及当前状态的地方先核对它列出的变化（未归档的会话、代码库的新提交），不要直接采信 hot.md。
 2. 需要项目全貌时，读 `10-Brief/`、`00-Hub/roadmap.md` 和 `00-Hub/timeline.md`。
-3. 查历史讨论时，先看 `00-Hub/index.md`，再 grep `40-Sessions/notes/` 和 `40-Sessions/decisions/` 的 frontmatter（`title`、`tags`）。**只有需要原话时，才去翻 `40-Sessions/raw/`。**
+3. 查历史讨论时，先看 `00-Hub/index.md`（会话纪要和资料卡带一句话摘要，先凭摘要判断要打开哪几篇），再 grep `40-Sessions/notes/` 和 `40-Sessions/decisions/` 的 frontmatter（`title`、`tags`）。**只有需要原话时，才去翻 `40-Sessions/raw/`。**
 4. 查领域知识时，先读 `30-Wiki/` 中的相关页面，再追溯到它引用的资料卡或原始资料。
 5. 写代码时，先读该代码库自己的 `CLAUDE.md` 或 `AGENTS.md` 和相关文档，需要时再回到知识库查设计文档和决策。
 
@@ -64,7 +64,7 @@
   tags: []
   ---
   ```
-  列表字段一律写成单行形式，例如 `tags: [a, b]`、`sources: ["[[笔记]]"]`。
+  列表字段一律写成单行形式，例如 `tags: [a, b]`、`sources: ["[[笔记]]"]`。会话纪要和资料卡另有 `summary`：一句话结论，单行，会显示在索引里。
 - **链接**：引用库内笔记用 `[[笔记名]]`。
 - **模板**：新建笔记时，先用 `$PY "$LOOM/scripts/loom.py" template <模板名>` 找到应该使用的模板。模板有稳定 ID 和中文别名，两种叫法都可以：session（会话纪要）、decision（决策记录）、wiki（wiki页）、source（资料卡）、literature（文献卡）、experiment（实验记录）、output（产出文档）、design（设计文档）、adr（ADR）。
 - **日志**：结构性写入（新建笔记或大幅修改）之后，在 `00-Hub/log.md` 的注释行下方追加一行：`- YYYY-MM-DD HH:MM · 动作 · [[目标]]`。

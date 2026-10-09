@@ -698,6 +698,103 @@ class TestSnapshotI18n(TempDirTest):
 
 # ---------- 示例项目 ----------
 
+# ---------- hot.md 过期检测、开场提醒、索引摘要 ----------
+
+class TestHotDrift(TempDirTest):
+    """hot.md 靠 wrapup 维护，过期时要由脚本按证据（未归档的会话、代码库的新提交）说出来。"""
+
+    def setUp(self):
+        super().setUp()
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+
+    def session_start(self):
+        rc, out = run(PY, SCRIPTS / "kb.py", "session-start", cwd=self.proj, stdin=b"")
+        self.assertEqual(rc, 0, out)
+        return out
+
+    def raw(self, name, prompts):
+        write(self.proj / "40-Sessions/raw/2026/09" / f"{name}.md",
+              f'---\ntype: raw-session\ntitle: "讨论"\nstarted: 2026-09-30 10:00\nprompts: {prompts}\n---\n\n# 讨论\n')
+
+    def repo_commit(self, msg, when=None):
+        demo = self.proj / "repos" / "demo"
+        if not demo.exists():
+            demo.mkdir(parents=True)
+            git(demo, "init", "-q")
+        write(demo / "a.txt", msg)
+        git(demo, "add", "a.txt")
+        env = {**os.environ, **({"GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else {})}
+        rc, out = run("git", "-c", "user.name=loom-test", "-c", "user.email=loom-test@example.com",
+                      "commit", "-q", "-m", msg, cwd=demo, env=env)
+        self.assertEqual(rc, 0, out)
+
+    def test_fresh_project_is_not_stale(self):
+        out = self.session_start()
+        self.assertNotIn("hot.md 最后更新于", out)
+        self.assertNotIn("尚未归档", out)
+
+    def test_unarchived_sessions_reported_and_ai_asks_once(self):
+        self.raw("2026-09-30_1000_aaaaaaaa", 3)
+        self.raw("2026-09-30_1100_bbbbbbbb", 1)
+        out = self.session_start()
+        self.assertIn("2 个会话尚未归档（共 4 条提问）", out)
+        self.assertIn("hot.md 最后更新于", out)
+        self.assertLess(out.index("hot.md 最后更新于"), out.index("## 一句话"), "过期提示要出现在 hot.md 正文之前")
+        self.assertIn("在第一次回复的开头用一句话问用户", out)
+        rc, status = run(PY, SCRIPTS / "loom.py", "status", "--no-export", cwd=self.proj)
+        self.assertEqual(rc, 0, status)
+        self.assertIn("hot.md 最后更新于", status)
+        self.assertNotIn("第一次回复", status, "会话中途运行 status 时，未归档的可能就是当前会话，不能让 AI 开场发问")
+
+    def test_trivial_session_does_not_interrupt(self):
+        """只有一条提问的会话多半是试运行：照常提示，但不让 AI 在开场打断用户。"""
+        self.raw("2026-09-30_1000_aaaaaaaa", 1)
+        out = self.session_start()
+        self.assertIn("1 个会话尚未归档", out)
+        self.assertNotIn("第一次回复", out)
+
+    def test_repo_commits_after_hot_reported(self):
+        self.repo_commit("旧提交", when="2020-01-01T00:00:00+00:00")
+        self.assertNotIn("hot.md 最后更新于", self.session_start(), "hot.md 更新之前的提交不算")
+        self.repo_commit("feat: 新功能", when="2099-01-01T00:00:00+00:00")
+        out = self.session_start()
+        self.assertIn("repos/demo 有 1 次新提交（最新：feat: 新功能）", out)
+
+    def test_english_project(self):
+        proj = self.tmp / "en"
+        init_project(proj, name="Demo", lang="en")
+        write(proj / "40-Sessions/raw/2026/09/2026-09-30_1000_aaaaaaaa.md",
+              '---\ntype: raw-session\ntitle: "Talk"\nstarted: 2026-09-30 10:00\nprompts: 2\n---\n')
+        rc, out = run(PY, SCRIPTS / "kb.py", "session-start", cwd=proj, stdin=b"")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("hot.md was last updated at", out)
+        self.assertIn("At the top of your first reply", out)
+
+
+class TestIndexSummary(TempDirTest):
+    def test_summary_shown_in_index(self):
+        proj = self.tmp / "proj"
+        init_project(proj)
+        write(proj / "40-Sessions/notes/2026-09-30_选型.md",
+              "---\ntype: session\ntitle: 选型\ncreated: 2026-09-30\nsummary: 决定用 A|B 中的 A\ntags: [x]\n---\n")
+        write(proj / "40-Sessions/notes/2026-09-29_旧纪要.md",
+              "---\ntype: session\ntitle: 旧纪要\ncreated: 2026-09-29\ntags: [y]\n---\n")
+        write(proj / "20-Sources/cards/某资料.md", "---\ntype: source\ntitle: 某资料\nsummary: 一句话概括\n---\n")
+        rc, out = run(PY, SCRIPTS / "kb.py", "index", cwd=proj)
+        self.assertEqual(rc, 0, out)
+        index = read(proj / "00-Hub/index.md")
+        self.assertIn("| 日期 | 主题 | 摘要 | 标签 |", index)
+        self.assertIn("| 决定用 A\\|B 中的 A | [x] |", index, "摘要里的 | 要转义，不能撑破表格")
+        self.assertIn("旧纪要]] |  | [y] |", index, "没有 summary 的旧笔记留空")
+        self.assertIn("某资料]] — 一句话概括", index)
+
+    def test_templates_have_summary(self):
+        for lang in ("en", "zh-CN"):
+            for tid in ("session", "source"):
+                self.assertIn("\nsummary:", read(SKILL / "assets/templates/notes" / lang / f"{tid}.md"), f"{lang}/{tid}")
+
+
 class TestExamples(TempDirTest):
     def test_examples_are_healthy_loom_projects(self):
         """examples/ 下的演示项目复制出去后就是完整的 Loom 项目：status 没有警告（Loom 区块是当前版本），lint 通过。"""

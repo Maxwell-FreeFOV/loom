@@ -376,6 +376,9 @@ def cmd_status(args):
                          + (f" and {len(skipped) - 5} more" if len(skipped) > 5 else "")))
     kbmod.set_root(root)
     notes = kbmod.collect_notes()
+    stale = kbmod.drift(notes, lang)
+    if stale:
+        out.append(f"- {stale}")
     out += [f"- {r}" for r in kbmod.reminders(notes, lang)]
     pending = kbmod.unarchived(notes)
     if pending:
