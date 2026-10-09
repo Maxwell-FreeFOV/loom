@@ -364,19 +364,22 @@ def git_out(cwd, *args):
 
 
 def hot_updated():
-    """hot.md 最后一次更新的时间：干净时取最后一次提交，否则（有未提交的改动、未跟踪、不是仓库）取文件修改时间。"""
+    """hot.md 最后一次更新的时间。有未提交的改动、未跟踪或不是仓库时，取文件修改时间；
+    干净时取"最后一次提交"和"文件修改时间"中较早的那个：改完过了很久才提交时，内容反映的是修改时的状态，
+    按提交时间算会漏掉这中间的变化；克隆或切换分支会把修改时间刷新得更晚，这时提交时间才是准的。"""
     hot = HUB / "hot.md"
     if not hot.exists():
         return None
     rel = hot.relative_to(ROOT).as_posix()
+    modified = datetime.fromtimestamp(hot.stat().st_mtime).astimezone()
     stamp = git_out(ROOT, "log", "-1", "--format=%cI", "--", rel)
     if stamp and not git_out(ROOT, "status", "--porcelain", "--", rel):
-        return datetime.fromisoformat(stamp)
-    return datetime.fromtimestamp(hot.stat().st_mtime).astimezone()
+        return min(datetime.fromisoformat(stamp), modified)
+    return modified
 
 
 def drift(notes, lang="zh-CN"):
-    """hot.md 最后一次更新之后发生了什么：未归档的会话，以及 repos/ 下各代码库的新提交。
+    """hot.md 最后一次更新之后发生了什么：未归档的会话、repos/ 下各代码库的新提交，以及知识库里未提交的改动。
     归档靠人发起，hot.md 难免过期；过期而不自知比没有更糟，所以由脚本按证据算出来，随 hot.md 一起交给 AI。
     看的是 git 而不是会话，所以没有被导出的工具（或手工）做的改动也算得到。没有变化时返回 None。"""
     since = hot_updated()
@@ -395,6 +398,11 @@ def drift(notes, lang="zh-CN"):
         if subjects:
             items.append(L(lang, f"repos/{d.name} 有 {len(subjects)} 次新提交（最新：{subjects[0]}）",
                            f"repos/{d.name} has {len(subjects)} new commit(s) (latest: {subjects[0]})"))
+    # 知识库里未提交的改动（原始对话是 Loom 自己导出的，不算）：多半是别的工具或上一次会话留下的，
+    # 会和下一次 wrapup 要改的文件撞在一起，所以在开场就说出来。
+    loose = git_out(ROOT, "status", "--porcelain", "--", ".", ":(exclude)40-Sessions/raw").splitlines()
+    if loose:
+        items.append(L(lang, f"知识库有 {len(loose)} 处未提交的改动", f"the knowledge base has {len(loose)} uncommitted change(s)"))
     if not items:
         return None
     return L(lang, f"⚠️ hot.md 最后更新于 {since:%Y-%m-%d %H:%M}，之后：{'；'.join(items)}。"
@@ -403,16 +411,18 @@ def drift(notes, lang="zh-CN"):
              "hot.md may be out of date: check these changes before relying on it for the current state.")
 
 
-def reminders(notes, lang="zh-CN", at_start=False):
+def reminders(notes, lang="zh-CN", at_start=False, current_session=None):
     """at_start：在会话开始时调用。此时未归档的会话都已经结束，这是唯一能确定"讨论结束了"的时刻，
-    所以让 AI 开口问一次，用户只需要回答要不要。只有一条提问的会话多半没有实质内容，不为它打断用户。"""
+    所以让 AI 开口问一次，用户只需要回答要不要。只有一条提问的会话多半没有实质内容，不为它打断用户。
+    current_session：当前会话的 id。恢复一个已导出过的会话时，它自己也在未归档之列，但还没有结束，不算。"""
     out = []
     pending = unarchived(notes)
-    if pending and at_start and any(prompts_of(n) > 1 for n in pending):
-        out.append(L(lang, f"有 {len(pending)} 个已结束的会话尚未归档（最近一个：{pending[-1].path.stem}）。"
+    ended = [n for n in pending if not current_session or n.meta.get("session_id") != current_session]
+    if at_start and any(prompts_of(n) > 1 for n in ended):
+        out.append(L(lang, f"有 {len(ended)} 个已结束的会话尚未归档（最近一个：{ended[-1].path.stem}）。"
                            "在第一次回复的开头用一句话问用户：要不要现在用 loom skill 的 wrapup 补归档。"
                            "只问一次，用户说不用就不再提。",
-                     f"{len(pending)} finished session(s) not yet archived (latest: {pending[-1].path.stem}). "
+                     f"{len(ended)} finished session(s) not yet archived (latest: {ended[-1].path.stem}). "
                      "At the top of your first reply, ask the user in one sentence whether to archive them now "
                      "with loom's wrapup. Ask once only; if the user declines, do not bring it up again."))
     elif pending:
@@ -429,22 +439,24 @@ def reminders(notes, lang="zh-CN", at_start=False):
 
 
 def settle_previous_sessions():
-    """作为 hook 调用时（stdin 是 hook JSON），补导出并收尾没有触发 SessionEnd 的上一次会话。"""
+    """作为 hook 调用时（stdin 是 hook JSON），补导出并收尾没有触发 SessionEnd 的上一次会话。
+    返回当前会话的 id；不是作为 hook 调用时返回 None。"""
     if sys.stdin is None or sys.stdin.isatty():
-        return
+        return None
     try:
         hook = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return
+        return None
     if not hook.get("session_id"):
-        return
+        return None
     import export_session
     export_session.set_root(ROOT)
     export_session.settle_recent(hook["session_id"])
+    return hook["session_id"]
 
 
 def cmd_session_start():
-    settle_previous_sessions()
+    current = settle_previous_sessions()
     kb = load_kb()
     lang = kb_language(kb)
     notes = collect_notes()
@@ -467,7 +479,7 @@ def cmd_session_start():
         if len(body) > HOT_LINES:
             print(L(lang, f"……（hot.md 共 {len(body)} 行，以上是前 {HOT_LINES} 行）",
                     f"... (hot.md has {len(body)} lines; the first {HOT_LINES} lines are shown above)"))
-    items = reminders(notes, lang, at_start=True)
+    items = reminders(notes, lang, at_start=True, current_session=current)
     if items:
         print(L(lang, "\n--- 提醒 ---", "\n--- Reminders ---"))
         print("\n".join(f"- {r}" for r in items))

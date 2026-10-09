@@ -761,6 +761,71 @@ class TestHotDrift(TempDirTest):
         out = self.session_start()
         self.assertIn("repos/demo 有 1 次新提交（最新：feat: 新功能）", out)
 
+    def commit_all(self):
+        if not (self.proj / ".git").exists():
+            git(self.proj, "init", "-q")
+            write(self.proj / ".git/info/exclude", "repos/\n")
+        git(self.proj, "add", "-A")
+        git(self.proj, "commit", "-q", "-m", "init")
+
+    def test_late_commit_does_not_hide_changes(self):
+        """hot.md 改完过了很久才提交：基准取修改时间，这中间代码库的提交仍然要报出来。"""
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        hot = self.proj / "00-Hub/hot.md"
+        edited = (now - timedelta(hours=2)).timestamp()
+        os.utime(hot, (edited, edited))
+        self.repo_commit("feat: 中间的提交", when=(now - timedelta(hours=1)).isoformat(timespec="seconds"))
+        self.commit_all()  # hot.md 的提交时间是现在，晚于那次代码库提交
+        self.assertFalse(git(self.proj, "status", "--porcelain"), "fixture 前提：知识库是干净的")
+        self.assertIn("repos/demo 有 1 次新提交（最新：feat: 中间的提交）", self.session_start())
+
+    def test_uncommitted_kb_changes_reported(self):
+        self.commit_all()
+        self.assertNotIn("hot.md 最后更新于", self.session_start(), "干净的知识库不提示")
+        write(self.proj / "30-Wiki/别的工具写的.md", "---\ntype: wiki\ntitle: x\n---\n")
+        self.assertIn("知识库有 1 处未提交的改动", self.session_start())
+
+    def test_exported_raw_is_not_an_uncommitted_change(self):
+        """原始对话是 Loom 自己导出的：只算作未归档的会话，不算知识库的未提交改动。"""
+        self.commit_all()
+        self.raw("2026-09-30_1000_aaaaaaaa", 3)
+        out = self.session_start()
+        self.assertIn("1 个会话尚未归档", out)
+        self.assertNotIn("未提交的改动", out)
+
+    def test_resumed_session_is_not_a_finished_one(self):
+        """恢复一个已导出过的会话：它还没结束，不能让 AI 开场问要不要给它补归档。"""
+        write(self.proj / "40-Sessions/raw/2026/09/2026-09-30_1000_aaaaaaaa.md",
+              '---\ntype: raw-session\ntitle: "讨论"\nsession_id: aaaaaaaa-current\nstarted: 2026-09-30 10:00\n'
+              'prompts: 3\n---\n')
+        env = self.home_env(self.tmp / "home")
+        hook = json.dumps({"session_id": "aaaaaaaa-current"}).encode()
+        rc, out = run(PY, SCRIPTS / "kb.py", "session-start", cwd=self.proj, stdin=hook, env=env)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("1 个会话尚未归档", out)
+        self.assertNotIn("第一次回复", out)
+        rc, out = run(PY, SCRIPTS / "kb.py", "session-start", cwd=self.proj,
+                      stdin=json.dumps({"session_id": "bbbbbbbb-other"}).encode(), env=env)
+        self.assertIn("在第一次回复的开头用一句话问用户", out, "换一个会话打开时照常询问")
+
+    def test_migrate_ignores_exported_raw(self):
+        """只有 Loom 自己导出的原始对话没提交时，迁移不该被挡住；别的未提交改动照旧拒绝。"""
+        meta = json.loads(read(self.proj / ".kb.json"))
+        del meta["language"]
+        meta["schema"] = 1
+        write(self.proj / ".kb.json", json.dumps(meta, ensure_ascii=False) + "\n")
+        self.commit_all()
+        write(self.proj / "30-Wiki/草稿.md", "---\ntype: wiki\ntitle: 草稿\n---\n")
+        rc, out = run(PY, SCRIPTS / "loom.py", "migrate", cwd=self.proj)
+        self.assertNotEqual(rc, 0, "有别的未提交改动时应拒绝")
+        self.assertIn("未提交的改动", out)
+        (self.proj / "30-Wiki/草稿.md").unlink()
+        self.raw("2026-09-30_1000_aaaaaaaa", 3)
+        rc, out = run(PY, SCRIPTS / "loom.py", "migrate", cwd=self.proj)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(json.loads(read(self.proj / ".kb.json"))["schema"], 2)
+
     def test_english_project(self):
         proj = self.tmp / "en"
         init_project(proj, name="Demo", lang="en")
