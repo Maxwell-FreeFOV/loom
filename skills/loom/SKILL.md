@@ -2,9 +2,9 @@
 name: loom
 description: Loom 项目知识库：在一个项目文件夹里和 AI 协同推进想法、研究或工程，把讨论、资料、决策、产出物和对话历史沉淀为 Obsidian 知识库，让 AI 始终有完整上下文。用于：用 Loom 初始化新项目（"用 Loom 初始化这个项目"、"loom init"）；在 Loom 项目（根目录或上级目录有 .kb.json）中归档会话（总结、收尾、归档、wrapup）、导入资料、网页或别人的知识库快照（ingest）、把可公开的内容发布成快照分享给合作者（publish）、知识库体检（lint）、启用研究/工程/产出物模块、结构迁移、项目暂停或结束（close）。除初始化外，只在 Loom 项目中使用。
 license: MIT
-compatibility: 需要本机 Python 3 和 git。对话自动归档目前只支持 Claude Code 的会话记录。
+compatibility: 需要本机 Python 3.12+ 和 git。对话自动归档目前只支持 Claude Code 的会话记录。
 metadata:
-  version: "0.3.1"
+  version: "0.4.0"
 ---
 
 # Loom
@@ -12,7 +12,7 @@ metadata:
 下文用两个记号：
 
 - `$LOOM`：本 skill 的目录。在 Claude Code 中是 `${CLAUDE_SKILL_DIR}`；在其他工具中，就是本 SKILL.md 所在的目录。
-- `$PY`：Python 3 命令。依次尝试 `py`、`python3`、`python`，用第一个能输出 `Python 3.x` 版本号的。
+- `$PY`：Python 3.12 或更高版本的命令。依次尝试 `py`、`python3`、`python`，用第一个版本号不低于 3.12 的。
 
 ## 第一步：确认项目状态
 
@@ -52,7 +52,7 @@ $PY "$LOOM/scripts/loom.py" status
 | 命令 | 作用 |
 |---|---|
 | `loom.py status` | 补导出对话；检查结构版本和 Loom 区块；列出提醒 |
-| `loom.py init --name … --summary … [--modules …]` | 初始化项目 |
+| `loom.py init --name … [--summary …] [--modules …] [--language en\|zh-CN]` | 初始化项目；`--language` 缺省为 en，按用户的表达传入（中文用户用 zh-CN） |
 | `loom.py module list` / `module add <模块>` | 列出模块 / 启用模块 |
 | `loom.py template <模板名>` | 输出应使用的模板路径 |
 | `loom.py refresh-block` | 更新 AGENTS.md 中的 Loom 区块 |

@@ -19,7 +19,7 @@
   - 有文档、PDF、网页存档等：从已有资料起步；
   - 有代码：很可能需要 engineering 模块。
 - 如果当前目录本身就是一个代码仓库（有 `.git`，内容主要是代码），**先停下来问用户**。Loom 知识库应当放在外层：建议另建一个项目文件夹，把这个代码库放进它的 `repos/` 下。
-- 如果目录里已有文件，但还不是 git 仓库，先做一个快照，便于回滚：`git init && git add -A && git commit -m "初始化前的原始状态"`。
+- 如果目录里已有文件，但还不是 git 仓库，先做一个快照，便于回滚：`git init && git add -A && git commit -m "初始化前的原始状态"`。这里是刻意的全量备份：初始化前的一切都属于用户，原样保留。
 
 ## 2. 访谈
 
@@ -39,8 +39,10 @@
 ## 3. 安装
 
 ```
-$PY "$LOOM/scripts/loom.py" init --name "<名称>" --summary "<一句话描述>" [--modules <模块，逗号分隔>]
+$PY "$LOOM/scripts/loom.py" init --name "<名称>" --summary "<一句话描述>" [--modules <模块，逗号分隔>] [--language en|zh-CN]
 ```
+
+项目语言按用户的表达传入：中文用户 `--language zh-CN`，英文用户 `--language en`；省略时默认 `en`。
 
 阅读输出的报告。如果出现"已存在同名文件"，说明模板被写成了 `<文件>.loom-new`：把其中的内容合并进原文件，然后删除 `.loom-new`。拿不准时问用户。
 
@@ -55,7 +57,7 @@ $PY "$LOOM/scripts/loom.py" init --name "<名称>" --summary "<一句话描述>"
 
 安装步骤已经生成了下列文件的框架，根据访谈和资料把它们填完整：
 
-- `10-Brief/项目简报.md`：问题、目标与成功标准、范围、约束、关键假设、已有基础。**写完后请用户确认。**
+- `10-Brief/project-brief.md`：问题、目标与成功标准、范围、约束、关键假设、已有基础。**写完后请用户确认。**
 - `AGENTS.md`：填写"项目概况"和"项目特有约定"两节。不要改动 `<!-- loom:begin -->` 和 `<!-- loom:end -->` 之间的内容。
 - `00-Hub/hot.md`：一句话描述、当前阶段、当前重点、未决问题。
 - `00-Hub/roadmap.md`：最初的几项任务和第一个里程碑。
@@ -71,9 +73,9 @@ $PY "$LOOM/scripts/loom.py" init --name "<名称>" --summary "<一句话描述>"
 
 1. 运行 `$PY "$LOOM/scripts/export_session.py" --all`，导出本次会话。这一步只在 Claude Code 中有效，在其他工具中跳过。
 2. 用 `loom.py template 会话纪要` 找到模板，为这次初始化写一份纪要：`40-Sessions/notes/YYYY-MM-DD_项目初始化.md`。如果第 1 步导出了原始对话，在 `raws` 中链接它。
-3. 在 `00-Hub/log.md` 中追加一行：`- YYYY-MM-DD HH:MM · 初始化 · [[项目简报]]`。
+3. 在 `00-Hub/log.md` 中追加一行：`- YYYY-MM-DD HH:MM · 初始化 · [[project-brief]]`。
 4. 运行 `$PY "$LOOM/scripts/kb.py" index` 和 `$PY "$LOOM/scripts/kb.py" lint`，修复发现的问题。
-5. 如果还不是 git 仓库，先 `git init`；然后执行 `git add -A && git commit -m "loom: 初始化项目 <名称>"`。
+5. 如果还不是 git 仓库，先 `git init`；然后只提交本次初始化生成和修改的文件：`git add .kb.json AGENTS.md CLAUDE.md .gitignore .obsidian 00-Hub 10-Brief 20-Sources 30-Wiki 40-Sessions 50-Outputs repos.yaml`（只 add 实际存在的）。第 4 步如果把已有资料移进了 `20-Sources/`，还要把它们原来的路径也 `git add` 上，让这次移动完整地进入提交。提交前运行 `git status --porcelain`，确认暂存的都是初始化的改动，然后 `git commit -m "loom: 初始化项目 <名称>"`。
 
 ## 8. 向用户交代
 

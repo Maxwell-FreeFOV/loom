@@ -1,0 +1,11 @@
+{
+  "name": "reading-notes-demo",
+  "summary": "一个保存和检索读书摘录的个人工具。Loom 文档的演示数据。",
+  "created": "2026-10-01",
+  "status": "active",
+  "language": "zh-CN",
+  "modules": ["core"],
+  "auto_amend": false,
+  "schema": 2,
+  "loom_version": "0.4.0"
+}

@@ -1,5 +1,8 @@
 {
-  "description": "产出物：50-Outputs/ 下的设计文档和报告，带版本、状态和来源追溯",
+  "description": {
+    "zh-CN": "产出物：50-Outputs/ 下的设计文档和报告，带版本、状态和来源追溯",
+    "en": "Outputs: design docs and reports under 50-Outputs/, with version, status and source traceability"
+  },
   "requires": [],
   "dirs": []
 }
