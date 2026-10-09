@@ -9,9 +9,10 @@
 import json
 import os
 import re
+import subprocess
 import sys
 from collections import namedtuple
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from kbroot import SKILL_DIR, ConfigError, find_root, kb_language, L, load_kb as read_kb, utf8_stdout
@@ -147,6 +148,12 @@ def table(header, rows, lang):
     return ["| " + " | ".join(header) + " |", "|" + "---|" * len(header), *rows, ""]
 
 
+def summary_of(note, in_table=False):
+    """frontmatter 的 summary（一句话结论）：有了它，不打开笔记就能从索引判断相关性。"""
+    s = note.meta.get("summary", "")
+    return s.replace("|", "\\|") if in_table else s
+
+
 def count_suffix(lang, n):
     """节标题里的计数：中文用全角括号，英文用半角。"""
     return f"（{n}）" if lang != "en" else f" ({n})"
@@ -198,8 +205,9 @@ def cmd_index():
     sessions = in_dir(notes, "40-Sessions/notes/", {"session"})
     out += [f"## 💬 {L(lang, '会话纪要', 'Session notes')}{count_suffix(lang, len(sessions))}", ""]
     out += table(
-        [L(lang, "日期", "Date"), L(lang, "主题", "Topic"), L(lang, "标签", "Tags")],
-        [f"| {n.meta.get('created', '')} | {link(n, True)} | {n.meta.get('tags', '')} |" for n in sessions],
+        [L(lang, "日期", "Date"), L(lang, "主题", "Topic"), L(lang, "摘要", "Summary"), L(lang, "标签", "Tags")],
+        [f"| {n.meta.get('created', '')} | {link(n, True)} | {summary_of(n, True)} | {n.meta.get('tags', '')} |"
+         for n in sessions],
         lang)
 
     raws = in_dir(notes, "40-Sessions/raw/")
@@ -218,7 +226,7 @@ def cmd_index():
                          f"Sources ({len(raw_files)} raw files, {len(cards)} source cards)"), ""]
     if SOURCES_INDEX.exists():
         out += [L(lang, "- 资料清单：[[sources-index]]", "- Source index: [[sources-index]]")]
-    out += [f"- {link(n)}" for n in cards]
+    out += [f"- {link(n)}" + (f" — {summary_of(n)}" if summary_of(n) else "") for n in cards]
     out += [""]
 
     wiki = sorted(in_dir(notes, "30-Wiki/"), key=lambda n: n.rel)
@@ -340,10 +348,74 @@ def cmd_unarchived():
                 f"- {n.rel} · {m.get('started', '')} · {m.get('prompts', '?')} prompts · {m['title']}"))
 
 
-def reminders(notes, lang="zh-CN"):
-    out = []
+def prompts_of(note):
+    p = note.meta.get("prompts", "")
+    return int(p) if p.isdigit() else 0
+
+
+def git_out(cwd, *args):
+    """只读的 git 查询；不是仓库、没有 git 或超时都返回空串（hook 不能因此崩掉）。"""
+    try:
+        r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def hot_updated():
+    """hot.md 最后一次更新的时间：干净时取最后一次提交，否则（有未提交的改动、未跟踪、不是仓库）取文件修改时间。"""
+    hot = HUB / "hot.md"
+    if not hot.exists():
+        return None
+    rel = hot.relative_to(ROOT).as_posix()
+    stamp = git_out(ROOT, "log", "-1", "--format=%cI", "--", rel)
+    if stamp and not git_out(ROOT, "status", "--porcelain", "--", rel):
+        return datetime.fromisoformat(stamp)
+    return datetime.fromtimestamp(hot.stat().st_mtime).astimezone()
+
+
+def drift(notes, lang="zh-CN"):
+    """hot.md 最后一次更新之后发生了什么：未归档的会话，以及 repos/ 下各代码库的新提交。
+    归档靠人发起，hot.md 难免过期；过期而不自知比没有更糟，所以由脚本按证据算出来，随 hot.md 一起交给 AI。
+    看的是 git 而不是会话，所以没有被导出的工具（或手工）做的改动也算得到。没有变化时返回 None。"""
+    since = hot_updated()
+    if since is None:
+        return None
+    items = []
     pending = unarchived(notes)
     if pending:
+        n, q = len(pending), sum(prompts_of(p) for p in pending)
+        items.append(L(lang, f"{n} 个会话尚未归档（共 {q} 条提问）", f"{n} unarchived session(s) ({q} prompts in total)"))
+    repos = ROOT / "repos"
+    for d in sorted(repos.iterdir()) if repos.is_dir() else []:
+        if not (d / ".git").exists():
+            continue
+        subjects = git_out(d, "log", f"--since={since.isoformat()}", "--format=%s").splitlines()
+        if subjects:
+            items.append(L(lang, f"repos/{d.name} 有 {len(subjects)} 次新提交（最新：{subjects[0]}）",
+                           f"repos/{d.name} has {len(subjects)} new commit(s) (latest: {subjects[0]})"))
+    if not items:
+        return None
+    return L(lang, f"⚠️ hot.md 最后更新于 {since:%Y-%m-%d %H:%M}，之后：{'；'.join(items)}。"
+                   "hot.md 可能已经过期：涉及当前状态时先核对这些变化，不要直接采信。",
+             f"⚠️ hot.md was last updated at {since:%Y-%m-%d %H:%M}; since then: {'; '.join(items)}. "
+             "hot.md may be out of date: check these changes before relying on it for the current state.")
+
+
+def reminders(notes, lang="zh-CN", at_start=False):
+    """at_start：在会话开始时调用。此时未归档的会话都已经结束，这是唯一能确定"讨论结束了"的时刻，
+    所以让 AI 开口问一次，用户只需要回答要不要。只有一条提问的会话多半没有实质内容，不为它打断用户。"""
+    out = []
+    pending = unarchived(notes)
+    if pending and at_start and any(prompts_of(n) > 1 for n in pending):
+        out.append(L(lang, f"有 {len(pending)} 个已结束的会话尚未归档（最近一个：{pending[-1].path.stem}）。"
+                           "在第一次回复的开头用一句话问用户：要不要现在用 loom skill 的 wrapup 补归档。"
+                           "只问一次，用户说不用就不再提。",
+                     f"{len(pending)} finished session(s) not yet archived (latest: {pending[-1].path.stem}). "
+                     "At the top of your first reply, ask the user in one sentence whether to archive them now "
+                     "with loom's wrapup. Ask once only; if the user declines, do not bring it up again."))
+    elif pending:
         out.append(L(lang, f"有 {len(pending)} 个会话尚未归档（最近一个：{pending[-1].path.stem}）。"
                            "用户结束讨论时，建议用 loom skill 的 wrapup 一并归档。",
                      f"{len(pending)} session(s) not yet archived (latest: {pending[-1].path.stem}). "
@@ -388,11 +460,14 @@ def cmd_session_start():
     if hot.exists():
         body = FM.sub("", hot.read_text(encoding="utf-8"), count=1).strip().splitlines()
         print("\n--- 00-Hub/hot.md ---")
+        stale = drift(notes, lang)
+        if stale:
+            print(stale + "\n")
         print("\n".join(body[:HOT_LINES]))
         if len(body) > HOT_LINES:
             print(L(lang, f"……（hot.md 共 {len(body)} 行，以上是前 {HOT_LINES} 行）",
                     f"... (hot.md has {len(body)} lines; the first {HOT_LINES} lines are shown above)"))
-    items = reminders(notes, lang)
+    items = reminders(notes, lang, at_start=True)
     if items:
         print(L(lang, "\n--- 提醒 ---", "\n--- Reminders ---"))
         print("\n".join(f"- {r}" for r in items))

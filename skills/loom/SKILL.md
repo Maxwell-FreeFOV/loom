@@ -4,7 +4,7 @@ description: Loom 项目知识库：在一个项目文件夹里和 AI 协同推�
 license: MIT
 compatibility: 需要本机 Python 3.12+ 和 git。对话自动归档目前只支持 Claude Code 的会话记录。
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # Loom
