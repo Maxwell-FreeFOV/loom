@@ -1,0 +1,11 @@
+{
+  "name": "reading-notes-demo",
+  "summary": "A personal tool for saving and finding reading excerpts. Demo data for Loom's documentation.",
+  "created": "2026-10-01",
+  "status": "active",
+  "language": "en",
+  "modules": ["core"],
+  "auto_amend": false,
+  "schema": 2,
+  "loom_version": "0.4.0"
+}

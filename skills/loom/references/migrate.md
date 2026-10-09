@@ -36,3 +36,19 @@ Loom 0.1 会把脚本、skill、hook 和规则复制到每个项目中。从 0.2
 - `.loom/` 目录已经不再需要。经用户确认后删除它，同时删除 `.gitignore` 中 `.loom/` 那一行。
 - 检查 `AGENTS.md` 的内容是否通顺。必要时，把"项目特有约定"改写成与工具无关的写法，例如把 `/wrapup` 改为"用 loom 做 wrapup"。
 - 在 Claude Code 中：重启会话，确认 loom 增强层已经加载（能看到 SessionStart 注入的上下文）。
+
+### 结构版本 1 → 2（Loom 0.4：项目语言）
+
+schema 2 引入 `.kb.json` 的 `language` 字段（`en` / `zh-CN`）：新项目的模板、索引、报告和快照说明都按项目语言生成。
+
+**脚本自动完成的改动：**
+
+- `.kb.json`：补 `language: zh-CN`（schema 1 及更早的项目都是中文项目），写入 `schema: 2`，更新 `loom_version`。
+
+迁移不重命名任何文件（包括 `10-Brief/项目简报.md`），不改动笔记和自定义模板。迁移后项目仍按中文处理；只有用新版 Loom 初始化、或手工把 `language` 改为 `en` 的项目才生成英文内容。新项目无论语言都使用 `10-Brief/project-brief.md` 这个文件名。
+
+笔记模板从中文文件名改为稳定 ID（`session`、`decision`、`wiki`、`source`、`literature`、`experiment`、`output`、`design`、`adr`），中文名保留为别名；`loom.py template <名称>` 两种叫法都接受，项目 `90-Templates/` 中的覆盖不受影响。
+
+**行为变化（不是结构变化）：会话尾巴不再自动并入上一次提交。** 0.2.1 到 0.3.x 中，hook 会把提交之后的对话尾巴 amend 进刚才的提交；0.4 起默认关闭。升级后，wrapup 提交之后继续对话，会话结束时 `40-Sessions/raw/` 下那份原始对话会留下未提交的改动，由下一次 wrapup 一并提交。想恢复旧行为，在 `.kb.json` 中加 `"auto_amend": true`（只建议在不推送、或只有自己使用的仓库里开启）。迁移时把这一点告诉用户。
+
+决策的已关闭状态新增英文写法 `reviewed` / `superseded`，与 `已复盘` / `已推翻` 等价；历史笔记的状态字段不批量改写。

@@ -63,10 +63,7 @@ def export(commit, dest):
     data = git("archive", "--format=tar", commit, SKILL_PATH)
     with tempfile.TemporaryDirectory() as tmp:
         with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-            if sys.version_info >= (3, 12):
-                tar.extractall(tmp, filter="data")
-            else:
-                tar.extractall(tmp)
+            tar.extractall(tmp, filter="data")
         shutil.move(str(Path(tmp) / SKILL_PATH), str(dest))
 
 
@@ -128,13 +125,20 @@ def install_claude_hooks(home, canonical):
     }
     hooks = data.setdefault("hooks", {})
     added = []
-    # 0.1.1 起不再用 Stop hook 导出（会让刚提交的 raw 文件马上又变脏），清理旧版写入的项
-    stale = [g for g in hooks.get("Stop", []) if any(h.get("command") == f"{run} export_session" for h in g.get("hooks", []))]
-    if stale:
-        hooks["Stop"] = [g for g in hooks["Stop"] if g not in stale]
-        if not hooks["Stop"]:
-            del hooks["Stop"]
-        added.append("移除 Stop")
+    # 0.1.1 起不再用 Stop hook 导出（会让刚提交的 raw 文件马上又变脏），清理旧版写入的项。
+    # 逐组过滤 hooks 列表：只去掉命令匹配的条目，保留同组的其他 hook 和组本身的属性；组空才删组，Stop 空才删键。
+    if "Stop" in hooks:
+        groups = []
+        for g in hooks["Stop"]:
+            kept = [h for h in g.get("hooks", []) if h.get("command") != f"{run} export_session"]
+            if kept:
+                groups.append({**g, "hooks": kept})
+        if groups != hooks["Stop"]:
+            if groups:
+                hooks["Stop"] = groups
+            else:
+                del hooks["Stop"]
+            added.append("移除 Stop")
     for event, hook in wanted.items():
         groups = hooks.setdefault(event, [])
         if hook["command"] not in [h.get("command") for g in groups for h in g.get("hooks", [])]:
@@ -153,6 +157,10 @@ def main():
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
+    if sys.version_info < (3, 12):
+        print(f"❌ Loom 需要 Python 3.12 或更高版本（当前是 {sys.version.split()[0]}）。"
+              "请安装 3.12+ 后再运行；Windows 上可以用 py -3.12 指定版本。", file=sys.stderr)
+        sys.exit(1)
     parser = argparse.ArgumentParser(description="部署 loom skill 到本机")
     parser.add_argument("--ref", default="HEAD", help="要部署的版本（tag 或 commit），默认 HEAD")
     parser.add_argument("--agents", help=f"要链接的工具，逗号分隔（可选 {', '.join(AGENT_DIRS)}；默认 {', '.join(DEFAULT_AGENTS)}）")
@@ -178,7 +186,9 @@ def main():
             else:
                 r = subprocess.run([sys.executable, str(REPO / "tests" / "smoke_test.py")], capture_output=True)
                 if r.returncode != 0:
-                    raise DeployError("smoke test 未通过，停止部署：\n" + r.stdout.decode("utf-8", "replace")[-3000:])
+                    raise DeployError("smoke test 未通过，停止部署（只想安装、不做开发时可以加 --skip-tests；"
+                                      "hook 测试需要可工作的 Bash）：\n"
+                                      + (r.stdout + r.stderr).decode("utf-8", "replace")[-3000:])
                 print("smoke test 通过。")
         canonical = install_canonical(home, commit, args.ref, version)
         lines = [f"# 已部署 loom {version}（{commit[:7]}）", "", f"- 本体：{canonical}"]

@@ -80,12 +80,38 @@ def zip_text(path, name):
         return z.read(name).decode("utf-8")
 
 
+_BASH = None
+
+
+def find_bash():
+    """探测实际能用的 bash：LOOM_TEST_BASH 环境变量 > PATH 上的 bash > 常见 Git Bash 路径。
+    每个候选用 echo 实测（Windows 上 PATH 里的 bash 可能是 WSL 的），选第一个可用的。"""
+    global _BASH
+    if _BASH:
+        return _BASH
+    candidates = []
+    if os.environ.get("LOOM_TEST_BASH"):
+        candidates.append(os.environ["LOOM_TEST_BASH"])
+    found = shutil.which("bash")
+    if found:
+        candidates.append(found)
+    candidates += [r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files (x86)\Git\bin\bash.exe"]
+    for c in dict.fromkeys(candidates):
+        try:
+            r = subprocess.run([c, "-c", "echo ok"], capture_output=True)
+        except OSError:
+            continue
+        if r.returncode == 0 and b"ok" in r.stdout:
+            print(f"  （hook 测试使用的 bash：{c}）")
+            _BASH = c
+            return c
+    raise AssertionError("找不到可用的 bash：hook 测试需要 Git Bash，也可以用 LOOM_TEST_BASH 环境变量指定路径。")
+
+
 def hook(script, project_dir, stdin=b"", env=None):
     """模拟 Claude Code 调用 hook：bash run.sh <脚本>，CLAUDE_PROJECT_DIR 为会话启动目录。"""
     e = {**(env or os.environ), "CLAUDE_PROJECT_DIR": str(project_dir)}
-    # 按 PATH 解析 bash：Windows 上直接用 "bash" 会先找到 System32 中 WSL 的 bash.exe
-    bash = shutil.which("bash") or "bash"
-    return subprocess.run([bash, str(SCRIPTS / "run.sh"), *script.split()], cwd=project_dir,
+    return subprocess.run([find_bash(), str(SCRIPTS / "run.sh"), *script.split()], cwd=project_dir,
                           capture_output=True, input=stdin, env=e)
 
 
@@ -133,10 +159,13 @@ def test_package():
 
 
 def test_tail(tmp):
-    print("会话尾巴：提交之后的对话并入那次提交")
+    print("会话尾巴：提交之后的对话并入那次提交（需要 auto_amend）")
     p = tmp / "tail"
     p.mkdir()
     loom(p, "init", "--name", "尾巴测试", "--summary", "测试会话尾巴")
+    meta = json.loads(read(p / ".kb.json"))
+    meta["auto_amend"] = True  # 尾巴并入默认关闭，本测试显式开启
+    write(p / ".kb.json", json.dumps(meta, ensure_ascii=False) + "\n")
     git(p, "init", "-q")
     git(p, "config", "user.name", "loom-test")
     git(p, "config", "user.email", "loom-test@example.com")
@@ -189,7 +218,7 @@ def test_snapshot(tmp):
     print("快照：发布")
     a = tmp / "share-a"
     a.mkdir()
-    loom(a, "init", "--name", "甲 项目", "--summary", "发布方", "--modules", "outputs")
+    loom(a, "init", "--name", "甲 项目", "--summary", "发布方", "--modules", "outputs", "--language", "zh-CN")
     write(a / "30-Wiki/概念.md", note("wiki", "概念", 'raws: ["[[2026-10-01_0900_abcd]]"]\nsources: ["[[2026-10-01_讨论]]"]\n')
           + "结论一。见 [[细节]]、[[DR-2026-001_选型|选型决定]] 和 [[2026-10-01_讨论]]。\n\n`[[代码里的不算]]`\n\n"
             "## 变更记录\n\n- 2026-10-01：创建\n\n### 更早\n\n- 旧\n")
@@ -214,8 +243,8 @@ def test_snapshot(tmp):
     z1 = next(exports.glob("*.zip"))
     names = zip_names(z1)
     check(z1.name == f"甲-项目-快照-{date.today()}.zip"
-          and {"loom-snapshot.json", "快照说明.md", "30-Wiki/概念.md", "30-Wiki/细节.md", "50-Outputs/报告/报告.md",
-               "10-Brief/项目简报.md", "00-Hub/roadmap.md"} <= names,
+          and {"loom-snapshot.json", "snapshot-readme.md", "30-Wiki/概念.md", "30-Wiki/细节.md", "50-Outputs/报告/报告.md",
+               "10-Brief/project-brief.md", "00-Hub/roadmap.md"} <= names,
           "build 生成 zip：包含 wiki、简报、已发布的产出物、roadmap、清单和说明", names)
     check(not any(n.startswith(("40-Sessions/", "50-Outputs/_exports/", "50-Outputs/草稿/"))
                   or n in ("30-Wiki/内部.md", "00-Hub/timeline.md", "00-Hub/log.md", "00-Hub/hot.md") for n in names),
@@ -232,7 +261,7 @@ def test_snapshot(tmp):
     check("变更记录" not in text and "## 相关" in text, "删除段落后，后面的同级段落保留", text)
     manifest = json.loads(zip_text(z1, "loom-snapshot.json"))
     check(manifest["project"] == "甲 项目" and manifest["loom_snapshot"] == 1
-          and set(manifest["files"]) == names - {"loom-snapshot.json", "快照说明.md"}, "清单记录了项目名和每个文件的校验值")
+          and set(manifest["files"]) == names - {"loom-snapshot.json", "snapshot-readme.md"}, "清单记录了项目名和每个文件的校验值")
     check("raws:" in read(a / "30-Wiki/概念.md") and "变更记录" in read(a / "30-Wiki/概念.md"), "知识库中的源文件没有被改动")
 
     kb_file = read(a / ".kb.json")
@@ -241,7 +270,7 @@ def test_snapshot(tmp):
     write(a / ".kb.json", json.dumps(meta, ensure_ascii=False))
     plan = snapshot(a, "plan")
     check("来自 .kb.json" in plan and "[新] 00-Hub/hot.md" in plan and "30-Wiki/细节.md：匹配 exclude" in plan
-          and "[改] 30-Wiki/概念.md" in plan and "- 10-Brief/项目简报.md" in plan,
+          and "[改] 30-Wiki/概念.md" in plan and "- 10-Brief/project-brief.md" in plan,
           "plan 按 .kb.json 的 publish 规则计算，并和上一份快照比较", plan)
     check("`40-Sessions/` 属于硬性排除" in plan and "40-Sessions/notes" not in plan, "配置也不能打开硬性排除的目录", plan)
     write(a / ".kb.json", kb_file)
@@ -256,7 +285,7 @@ def test_snapshot(tmp):
     print("快照：导入")
     b = tmp / "share-b"
     b.mkdir()
-    loom(b, "init", "--name", "乙项目")
+    loom(b, "init", "--name", "乙项目", "--language", "zh-CN")
     raw = b / "20-Sources/raw/2026-10"
     raw.mkdir(parents=True)
     shutil.copy(z1, raw / z1.name)
@@ -297,11 +326,13 @@ def main():
     print("S1 从一句话想法起步")
     p1 = tmp / "idea"
     p1.mkdir()
-    out = loom(p1, "init", "--name", "测试想法", "--summary", "一个用来测试的想法")
+    out = loom(p1, "init", "--name", "测试想法", "--summary", "一个用来测试的想法", "--language", "zh-CN")
     meta = json.loads(read(p1 / ".kb.json"))
-    check(meta["modules"] == ["core"] and meta["schema"] == 1, ".kb.json：只启用 core，结构版本 1")
+    check(meta["modules"] == ["core"] and meta["schema"] == 2 and meta["auto_amend"] is False
+          and meta["language"] == "zh-CN",
+          ".kb.json：只启用 core，结构版本 2，auto_amend 默认关闭，语言 zh-CN")
     for f in ["AGENTS.md", "CLAUDE.md", "00-Hub/hot.md", "00-Hub/timeline.md", "00-Hub/roadmap.md",
-              "10-Brief/项目简报.md", "20-Sources/sources-index.md", "20-Sources/inbox/.gitkeep", ".gitignore"]:
+              "10-Brief/project-brief.md", "20-Sources/sources-index.md", "20-Sources/inbox/.gitkeep", ".gitignore"]:
         check((p1 / f).exists(), f"生成了 {f}")
     check(not any((p1 / d).exists() for d in ("scripts", ".claude", "90-Templates", "30-Wiki", "repos", "LOOM-RULES.md")),
           "项目中没有脚本、skill、hook、模板，未启用模块的目录也没有创建")
@@ -321,7 +352,7 @@ def main():
     check((p1 / "00-Hub/index.md").exists(), "在子目录中运行 kb.py index，索引写到知识库根目录")
     lint = kb(deep, "lint")
     check("✅" in lint, "新项目 lint 通过", lint)
-    check("不在 Loom 项目中" in kb(tmp, "index", check=False), "不在 Loom 项目中时报错")
+    check("Not in a Loom project" in kb(tmp, "index", check=False), "不在 Loom 项目中时报错")
     write(p1 / "30-Wiki/引号甲.md", note("wiki", '采用"某方案"'))
     write(p1 / "30-Wiki/引号乙.md", note("wiki", '"整个标题加了引号"'))
     kb(p1, "index")
@@ -411,25 +442,34 @@ def main():
     check("repos/" not in git(p1, "status", "--porcelain"), "外层仓库看不到代码库的内容")
 
     print("模板")
-    check(Path(loom(p1, "template", "会话纪要").strip()) == SKILL / "assets/templates/notes/会话纪要.md", "默认使用 skill 自带的模板")
+    builtin = SKILL / "assets/templates/notes/zh-CN/session.md"
+    check(Path(loom(p1, "template", "会话纪要").strip()) == builtin, "中文别名解析到内置模板（zh-CN 项目）")
+    check(Path(loom(p1, "template", "session").strip()) == builtin, "稳定 ID 解析到同一个内置模板")
     write(p1 / "90-Templates/会话纪要.md", "---\ntype: session\ntitle: 自定义\n---\n")
     check(Path(loom(p1, "template", "会话纪要").strip()) == p1 / "90-Templates/会话纪要.md", "项目中的同名模板优先")
+    check(Path(loom(p1, "template", "session").strip()) == p1 / "90-Templates/会话纪要.md",
+          "按 ID 请求时，项目中映射到该 ID 的模板优先")
     check("可用模板" in loom(p1, "template", "不存在", check=False), "模板不存在时列出可用模板")
     test_snapshot(tmp)
 
-    print("S2 从已有资料起步")
+    print("S2 从已有资料起步（省略 --language，默认英文项目）")
     p2 = tmp / "materials"
     originals = {"需求说明.md": "# 需求\n内容\n", "docs/调研.txt": "调研\n", "AGENTS.md": "# 我自己的说明\n"}
     for f, text in originals.items():
         write(p2 / f, text)
     loom(p2, "init", "--name", "资料项目", "--modules", "research")
+    meta2 = json.loads(read(p2 / ".kb.json"))
+    check(meta2["language"] == "en" and meta2["schema"] == 2, "省略 --language 时默认英文项目")
+    check("Project Brief" in read(p2 / "10-Brief/project-brief.md")
+          and "## Loom Knowledge Base" in read(p2 / "AGENTS.md.loom-new"),
+          "英文项目的简报和 Loom 区块是英文")
     check(all(read(p2 / f) == text for f, text in originals.items()), "已有资料和说明文件保持原样")
     check((p2 / "AGENTS.md.loom-new").exists(), "已存在的 AGENTS.md 不被覆盖，模板写入 .loom-new")
     check(".loom-new" in loom(p2, "doctor"), "doctor 提示有未处理的 .loom-new")
 
-    print("迁移：Loom 0.1 项目 → 结构版本 1")
+    print("迁移：Loom 0.1 项目 → 结构版本 2（0→1→2 链路）")
     p3 = tmp / "legacy"
-    tpl = read(SKILL / "assets/templates/notes/会话纪要.md")
+    tpl = read(SKILL / "assets/templates/notes/zh-CN/session.md")
     write(p3 / ".kb.json", json.dumps({"name": "旧项目", "summary": "", "created": "2026-09-30", "status": "active",
                                        "modules": ["core", "engineering"], "python": "py",
                                        "loom": {"version": "0.1.0", "commit": "abc"}}, ensure_ascii=False))
@@ -456,7 +496,8 @@ def main():
     check("预览" in dry and (p3 / "LOOM-RULES.md").exists(), "migrate --dry-run 只预览，不改动", dry)
     out = loom(p3, "migrate")
     meta = json.loads(read(p3 / ".kb.json"))
-    check(meta["schema"] == 1 and "python" not in meta and "loom" not in meta, ".kb.json 已迁移到结构版本 1", out)
+    check(meta["schema"] == 2 and meta["language"] == "zh-CN" and "python" not in meta and "loom" not in meta,
+          ".kb.json 经 0→1→2 迁移到结构版本 2，补了 language: zh-CN", out)
     check(not (p3 / "LOOM-RULES.md").exists() and not (p3 / "scripts/kb.py").exists()
           and (p3 / "scripts/my_tool.py").exists(), "删除了 Loom 0.1 的规则和脚本，保留用户自己的脚本")
     check(not (p3 / ".claude/skills/wrapup").exists() and (p3 / ".claude/skills/mine").exists(),
@@ -474,6 +515,23 @@ def main():
     check("需要迁移" not in status and "Loom 区块" not in status, "迁移后 status 正常", status)
     check("不需要迁移" in loom(p3, "migrate"), "再次迁移提示不需要迁移")
 
+    print("迁移：结构版本 1 → 2")
+    p4 = tmp / "schema1"
+    write(p4 / ".kb.json", json.dumps({"name": "旧一项目", "summary": "", "created": "2026-09-30",
+                                       "status": "active", "modules": ["core"], "schema": 1,
+                                       "loom_version": "0.3.1"}, ensure_ascii=False))
+    git(p4, "init", "-q")
+    commit(p4, "schema 1 项目")
+    dry = loom(p4, "migrate", "--dry-run")
+    check("预览" in dry and json.loads(read(p4 / ".kb.json"))["schema"] == 1, "1→2 的 dry-run 只预览，不改动", dry)
+    out = loom(p4, "migrate")
+    meta = json.loads(read(p4 / ".kb.json"))
+    check(meta["schema"] == 2 and meta["language"] == "zh-CN"
+          and meta["loom_version"] == read(SKILL / "VERSION").strip(),
+          "1→2 补 language: zh-CN、写入 schema 2 并更新 loom_version", out)
+    check("不需要迁移" in loom(p4, "migrate"), "重复执行 1→2 提示不需要迁移")
+    check("需要迁移" not in loom(p4, "status", "--no-export"), "1→2 之后 status 不再提示迁移")
+
     print("部署")
     src = tmp / "loom-src"
     git(tmp, "clone", "-q", REPO, src)
@@ -490,6 +548,8 @@ def main():
     canonical = home2 / ".agents/skills/loom"
     marker = json.loads(read(canonical / ".loom-deploy.json"))
     check((canonical / "SKILL.md").exists() and marker["version"] == read(SKILL / "VERSION").strip(), "部署了 skill 本体并写入部署标记", out)
+    check((canonical / "LICENSE").is_file() and read(canonical / "LICENSE") == read(REPO / "LICENSE"),
+          "部署包包含 LICENSE，且与仓库根目录的一致")
     check((home2 / ".claude/skills/loom/SKILL.md").exists() and (home2 / ".codex/skills/loom/SKILL.md").exists(),
           "Claude Code 和 Codex 的 skills 目录都能访问到 loom", out)
     check(not (home2 / ".gemini").exists(), "默认不链接未指定的工具")

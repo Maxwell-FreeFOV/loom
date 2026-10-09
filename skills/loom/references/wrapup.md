@@ -4,6 +4,8 @@
 
 ## 步骤
 
+开始之前先运行 `git status --porcelain`，记下此刻已经存在的改动：它们不属于本次归档，第 8 步提交时不要带进来。`40-Sessions/raw/` 下的原始对话除外，见第 8 步。
+
 1. **找出待归档的会话**
    - `loom.py status` 已经补导出了对话，并列出了未归档的会话。其中通常包括本次会话，也可能有以前忘记归档的。需要完整列表时，运行 `$PY "$LOOM/scripts/kb.py" unarchived`。
    - 逐个判断：
@@ -36,5 +38,5 @@
 8. **收尾**
    - 在 `00-Hub/log.md` 的注释行下方追加 `- YYYY-MM-DD HH:MM · wrapup · [[纪要]] [[决策]]`。
    - 运行 `$PY "$LOOM/scripts/kb.py" index`，再运行 `$PY "$LOOM/scripts/kb.py" lint`，修复本次引入的问题。
-   - 提交：`git add -A && git commit -m "wrapup: 主题"`。
+   - 提交：只 `git add` 本次涉及的具体文件（不要用 `git add -A`），`git commit -m "wrapup: 主题"`。本次涉及的文件包括 `loom.py status` 补导出到 `40-Sessions/raw/` 的原始对话：它们是 Loom 自己生成的，始终随这次提交。开始时记下的既有改动不要带进来；如果某个文件里混有无法分离的用户既有改动，不提交这个文件，向用户说明原因。
    - 向用户简要报告：生成或修改了哪些文件，以及 3 条以内的核心结论。请用户确认有没有记错。

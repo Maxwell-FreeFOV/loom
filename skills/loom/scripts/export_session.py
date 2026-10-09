@@ -3,7 +3,7 @@
 用法：
   1. 作为 Claude Code 的 SessionEnd hook：从 stdin 读取 hook JSON，取其中的 transcript_path 和 cwd，
      从 cwd 向上找到知识库（.kb.json）。不在 Loom 项目中时什么也不做。导出后如果这次会话中途已经提交过
-     这个文件，把提交之后的对话尾巴并入该提交（见 settle_tail）。
+     这个文件，且 .kb.json 显式开启了 auto_amend，把提交之后的对话尾巴并入该提交（见 settle_tail）。
      不用 Stop hook：每轮都导出会让刚提交的文件马上又变脏。会话中途的导出由 loom.py status 完成。
   2. 补导出本项目的全部会话（包括在 repos/<名称>/ 等子目录中启动的）：python export_session.py --all
   3. 导出指定的记录文件：python export_session.py <transcript.jsonl> [...]
@@ -20,7 +20,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from kbroot import find_root, utf8_stdout
+from kbroot import ConfigError, find_root, kb_language, L, load_kb, utf8_stdout
 
 ROOT = RAW_DIR = None
 
@@ -165,10 +165,22 @@ def git(*args):
     return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, encoding="utf-8")
 
 
+def auto_amend():
+    """是否允许把会话尾巴自动并入上一次提交（.kb.json 的 auto_amend）。默认关闭：
+    settle_tail 用 git branch -r --contains 判断"未推送"，但本地的远端引用不代表实时的远端状态，
+    自动 amend 可能改写别人已经拉取过的提交。配置损坏时同样按关闭处理（hook 不能因此崩掉）。"""
+    try:
+        return load_kb(ROOT).get("auto_amend") is True
+    except ConfigError:
+        return False
+
+
 def settle_tail(target):
     """会话在提交之后还有对话（至少有一句"已提交"），导出后已提交的 raw 文件会又变脏。
     如果 HEAD 就是提交过这个文件的那次提交，且未推送、没有 tag，把尾巴并入 HEAD，保持工作区干净。
-    条件不满足或任何一步失败，就把改动留给下一次提交。"""
+    只在 .kb.json 显式开启 auto_amend 时才并入；条件不满足或任何一步失败，就把改动留给下一次提交。"""
+    if not auto_amend():
+        return False
     rel = target.relative_to(ROOT).as_posix()
     if git("ls-files", "--error-unmatch", "--", rel).returncode != 0:
         return False  # 未跟踪：还没提交过，不是"尾巴"
@@ -195,31 +207,55 @@ def transcript_cwd(path):
     return None
 
 
+def owns(cwd):
+    """cwd 是否在本知识库内（resolve 后等于根目录或位于其下）。"""
+    if not cwd:
+        return False
+    try:
+        Path(cwd).resolve().relative_to(ROOT)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def project_transcripts():
-    # Claude Code 把启动目录中的非字母数字字符替换为 "-" 作为目录名（盘符大小写可能不一致）。
-    # 在子目录（如 repos/xxx）启动的会话目录名以根目录的名字为前缀；但名字相近的兄弟目录也可能
-    # 有同样的前缀（如 Foo 和 Foo-Studio），所以再用记录里的 cwd 确认会话确实属于本知识库。
+    """返回（属于本项目的记录列表，被跳过的 [(路径, 原因标识, 细节)]）。原因标识：no-cwd / not-owned，
+    展示时按项目语言翻译（见 skip_reason）。
+    Claude Code 把启动目录中的非字母数字字符替换为 "-" 作为目录名（盘符大小写可能不一致），
+    所以 slug 只用来筛选候选目录：不同的路径可能撞出同一个 slug（如 C:\\Max\\foo 与 C:\\Max-foo），
+    名字相近的兄弟目录也可能有同样的前缀（如 Foo 和 Foo-Studio）。
+    每份记录都要用其中的 cwd 确认归属：取不到 cwd、或 cwd resolve 后不在本知识库内的，跳过并报告。"""
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(ROOT)).lower()
     base = Path.home() / ".claude" / "projects"
     if not base.is_dir():
-        return []
-    found = []
+        return [], []
+    found, skipped = [], []
     for d in base.iterdir():
         name = d.name.lower()
         if name != slug and not name.startswith(slug + "-"):
             continue
         for f in d.glob("*.jsonl"):
             cwd = transcript_cwd(f)
-            if name == slug or (cwd and launched_in(cwd)):
+            if not cwd:
+                skipped.append((f, "no-cwd", None))
+            elif owns(cwd):
                 found.append(f)
-    return found
+            else:
+                skipped.append((f, "not-owned", cwd))
+    return found, skipped
+
+
+def skip_reason(lang, key, detail):
+    if key == "no-cwd":
+        return L(lang, "记录中没有 cwd", "no cwd in the transcript")
+    return L(lang, f"cwd 不属于本知识库：{detail}", f"cwd is outside this knowledge base: {detail}")
 
 
 def settle_recent(current_session=None, days=3):
     """SessionStart 兜底：上一次会话可能没触发 SessionEnd（崩溃、直接关窗口），
     把最近几天内的其他会话导出并收尾。只看最近的记录，保证在 hook 超时内完成。"""
     cutoff = time.time() - days * 86400
-    for p in project_transcripts():
+    for p in project_transcripts()[0]:
         if p.stem == current_session or p.stat().st_mtime < cutoff:
             continue
         try:
@@ -246,10 +282,10 @@ def main():
     if args:
         root = find_root(root_arg)
         if root is None:
-            print("当前目录不在 Loom 项目中（向上找不到 .kb.json）。", file=sys.stderr)
+            print("Not in a Loom project (no .kb.json found in this directory or its parents).", file=sys.stderr)
             sys.exit(1)
         set_root(root)
-        paths = project_transcripts() if args == ["--all"] else args
+        paths, skipped = project_transcripts() if args == ["--all"] else (args, [])
     else:  # hook 模式
         try:
             hook = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
@@ -259,7 +295,7 @@ def main():
         if root is None or not hook.get("transcript_path"):
             return  # 不是 Loom 项目：静默退出
         set_root(root)
-        paths = [hook["transcript_path"]]
+        paths, skipped = [hook["transcript_path"]], []
     for p in paths:
         try:
             target = export(p)
@@ -269,6 +305,16 @@ def main():
                 settle_tail(target)
         except Exception as e:  # hook 不能因导出失败而打断会话
             print(f"export failed for {p}: {e}", file=sys.stderr)
+    if skipped:
+        try:
+            lang = kb_language(load_kb(ROOT))
+        except ConfigError:
+            lang = "zh-CN"
+        print(L(lang, f"跳过 {len(skipped)} 份无法确认归属的记录（缺少 cwd 或不属于本知识库）：",
+                f"Skipped {len(skipped)} transcripts whose ownership cannot be confirmed "
+                "(missing cwd or outside this knowledge base):"), file=sys.stderr)
+        for p, key, detail in skipped:
+            print(f"  - {p}：{skip_reason(lang, key, detail)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

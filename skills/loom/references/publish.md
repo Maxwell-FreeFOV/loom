@@ -8,7 +8,7 @@
 
 1. **准备**
    - 快照默认写到 `50-Outputs/_exports/`。如果项目没有启用 outputs 模块，先建议用户启用（见 `module.md`）。
-   - 运行 `git status`。有未提交的改动时，先问用户是否提交。
+   - 运行 `git status --porcelain`。有未提交的改动时，先问用户是否提交；用户不提交的，记下来，它们不属于本次发布，第 7 步提交时不要带进来。
 
 2. **确认发布规则**：运行 `$PY "$LOOM/scripts/snapshot.py" plan`，输出的第一节是当前生效的规则。
    - 如果显示"默认值"，说明这个项目还没有配置过。把默认规则讲给用户听，按用户的意见调整，然后写进 `.kb.json` 的 `publish`：
@@ -48,6 +48,6 @@
 
 7. **收尾**
    - 在 `00-Hub/log.md` 中追加一行；在 `00-Hub/timeline.md` 末尾追加 `- YYYY-MM-DD · 发布知识库快照（给谁，如果用户说了）`。
-   - 提交：`git add -A && git commit -m "publish: 快照 YYYY-MM-DD"`。
+   - 提交：只 `git add` 本次涉及的具体文件（不要用 `git add -A`），`git commit -m "publish: 快照 YYYY-MM-DD"`。本次涉及的文件包括 `loom.py status` 补导出到 `40-Sessions/raw/` 的原始对话：它们是 Loom 自己生成的，始终随这次提交。开始时记下的既有改动不要带进来；如果某个文件里混有无法分离的用户既有改动，不提交这个文件，向用户说明原因。
    - 打 tag：`git tag publish/YYYY-MM-DD`。同一天发布多次时，在后面加 `-2`、`-3`。
    - 告诉用户 zip 的位置。怎么发给对方（邮件、网盘、即时通讯）由用户决定，AI 不代为发送。
