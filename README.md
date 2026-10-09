@@ -1,87 +1,238 @@
 # Loom
 
-**Loom 是一个用来和 AI 协同推进项目的知识库 skill。** 它把一个项目的讨论、调研资料、决策、产出物、代码库和全部对话历史，组织成同一个文件夹里的 Obsidian 知识库，让 AI 在每一次会话中都能拿到完整的上下文。
+**English** | [简体中文](README.zh-CN.md)
 
-适用于想法孵化、研究调研和工程开发。可以从一句话的想法开始，也可以从一堆已有资料开始。
+**Pick up your project where the last AI session left off.**
 
-Loom 是一个遵循 [Agent Skills](https://agentskills.io) 开放标准的 skill，只需在本机全局安装一次，所有项目都能使用；项目文件夹里只存放数据。
+Every new AI session starts from zero. You re-explain the background, re-paste the same documents, and re-argue decisions you already made — while last week's conclusions sit buried in a chat log. The longer a project runs, the more this costs.
 
-## 安装
+Loom is a project knowledge-base skill for AI assistants. It helps turn sources, discussions, decisions, and next steps into local Markdown files, so your next session can read the saved context and continue the work.
 
-**方式一：从源码部署（推荐，便于升级和回滚）**
+- **Pick up where you stopped:** current focus, decisions made, and next steps are saved; a new session starts from them.
+- **Find the basis:** knowledge pages, decisions, and deliverables link back to the sources or session notes they came from.
+- **Keep your own files:** everything is local Markdown — track it with git, browse it with Obsidian.
+
+Three things up front:
+
+- **How you use it:** in natural language — "initialize this project with Loom", "wrap up this discussion", "ingest these materials". The AI follows Loom's workflow to read and write files in your project folder.
+- **What is automatic:** archiving is something you start. In Claude Code, hooks additionally export the raw conversation when a session ends and inject the current focus when one starts; other tools don't have this layer (see [support scope](#support-scope-and-privacy)).
+- **Where the result lives:** in your project folder — a set of interlinked Markdown files, with every change recorded by git.
+
+> A *skill* is a set of instructions and scripts that let an AI assistant follow a fixed workflow on your files. Loom follows the open [Agent Skills](https://agentskills.io) standard: install it once on your machine and every project can use it; project folders hold only data.
+
+## Is it for you?
+
+**A good fit if:**
+
+- your AI assistant can read and write local files and run commands (Claude Code, for example);
+- you work with AI on the same project again and again, over days or months — researching, weighing options, writing code, writing documents;
+- you want the conclusions, their basis, and the decisions to stay in your hands instead of being scattered across chat histories.
+
+You can start from a one-line idea, a pile of existing material (documents, PDFs, saved web pages), or one or more existing code repositories.
+
+**Not a fit, for now, if:**
+
+- you only use a web chat window where the AI cannot touch local files;
+- you expect it to remember everything automatically once installed — archiving is something you start, and raw conversation export currently works only in Claude Code;
+- you need real-time multi-user editing — Loom shares work by publishing reviewed snapshots.
+
+**What Loom is not:** it does not change the model's own memory. It saves and organizes project records, and has the AI read them when needed. There is no vector database, background service, or web UI — only files, git, and scripts that use the Python standard library. Obsidian is a convenient way to browse the files, not a prerequisite.
+
+## One full cycle
+
+The walkthrough uses a fictional demo project, `reading-notes-demo` (a personal reading-excerpt tool; all content is invented for demonstration). The whole cycle is three sentences:
+
+```text
+Initialize this project with Loom. The goal is a personal reading-excerpt tool.
+
+Wrap up the discussion we just had with Loom — record the v1 scope decision and the next step.
+
+This is a Loom project. Read hot.md and the related decisions first, then keep refining the v1 feature list.
+```
+
+The third line is a natural-language request in a *new* session — there is no "resume" command; reading the saved context is the resume.
+
+What the second sentence (the wrapup) leaves behind:
+
+| Before the wrapup | After the wrapup | How the next session uses it |
+|---|---|---|
+| The discussion in this chat | A [session note](examples/reading-notes/en/40-Sessions/notes/2026-10-01_v1-scope.md) with conclusions and open questions | Read when background is needed |
+| A spoken decision to defer sharing | A [decision record](examples/reading-notes/en/40-Sessions/decisions/DR-2026-001_v1-local-excerpts.md) with the options compared, the rationale, the strongest counterargument, and a review date | Avoid re-discussing; revisit when constraints change |
+| To-dos mentioned in chat | [hot.md](examples/reading-notes/en/00-Hub/hot.md) and the [roadmap](examples/reading-notes/en/00-Hub/roadmap.md) updated | Know which next step to continue from |
+
+`00-Hub/hot.md` is the first thing a new session reads. After the wrapup it looks like this (excerpt):
+
+```markdown
+## Current focus
+- Turn the v1 scope ([[v1-scope]]) into a concrete feature list.
+
+## Open questions
+- Does plain-text search stay good enough at a few hundred excerpts?
+
+## Recent decisions
+- [[DR-2026-001_v1-local-excerpts]]: v1 supports local excerpts and search; sharing deferred.
+
+## Next steps
+- Write the minimal v1 feature list — see [[roadmap]]
+```
+
+The complete example is in [`examples/reading-notes/en/`](examples/reading-notes/en/) (and in Chinese in [`examples/reading-notes/zh-CN/`](examples/reading-notes/zh-CN/)). To try it hands-on, **copy the example into a separate directory** — do not run init inside the Loom source repository.
+
+```mermaid
+flowchart LR
+    A[Discuss the project with your AI] -->|you start a wrapup| B[Session notes, decisions, wiki pages]
+    B --> C[Current focus and next steps updated]
+    C -->|read at the start of a new session| D[Continue the project]
+    D --> A
+    E[Existing material] -->|ingest| B
+```
+
+Archiving is something you start. The Claude Code hooks (raw conversation export, context injection) are a separate enhancement layer: raw export does no semantic organization and is not a substitute for a wrapup.
+
+## Quickstart
+
+Requirements: **Python 3.12+** and **git**. Claude Code hooks additionally need a working **Bash** (Git Bash on Windows).
+
+**1. Install**
+
+Windows:
+
+```powershell
+git clone <GITHUB-REPO-URL> loom
+cd loom
+py tools/deploy.py
+```
+
+macOS / Linux:
 
 ```bash
-git clone <本仓库地址> loom && cd loom
-py tools/deploy.py            # 或 python3 tools/deploy.py
+git clone <GITHUB-REPO-URL> loom
+cd loom
+python3 tools/deploy.py
 ```
 
-部署时，skill 本体会放到 `~/.agents/skills/loom`，然后在已安装的工具的 skills 目录中创建链接：默认是 `~/.claude/skills/loom` 和 `~/.codex/skills/loom`。可以用 `--agents claude,codex,gemini` 指定要链接的工具。
+The skill itself lands in `~/.agents/skills/loom`, and deploy links it into the skills directories of the tools it finds (`~/.claude/skills/loom` and `~/.codex/skills/loom` by default; `--agents claude,codex,gemini` to choose). Deploy first runs the repository's end-to-end tests, and the hook tests among them need Bash; add `--skip-tests` if you have no Bash or want to skip them.
 
-**方式二：手工复制**
+Alternatively, copy `skills/loom/` into a tool's skills directory by hand, or — once this repository is on GitHub — use the [skills CLI](https://github.com/vercel-labs/skills): `npx skills add <owner>/loom -g --skill loom` (needs Node/npm; `<owner>` is a placeholder replaced with the real repository owner at release).
 
-把 `skills/loom/` 整个目录复制到对应工具的 skills 目录，例如 `~/.claude/skills/loom/`。
+**2. Create a project**
 
-发布到 GitHub 后，也可以用 [skills CLI](https://github.com/vercel-labs/skills) 安装：`npx skills add <owner>/loom`。
-
-## 使用
-
-新建一个空文件夹，或者一个放着已有资料的文件夹，在里面启动 AI，然后说：
-
-> 用 Loom 初始化这个项目
-
-在 Claude Code 中也可以直接输入 `/loom init`。AI 会先访谈你、选择模块，然后生成目录、`AGENTS.md`、项目简报和 hot.md，登记已有的资料，最后提交第一个 git commit。
-
-日常常用的操作（在 Claude Code 中写作 `/loom <操作>`，在其他工具中直接说"用 loom 做 …"）：
-
-| 操作 | 作用 |
-|---|---|
-| `wrapup` | 讨论结束时，归档会话：写纪要和决策记录，更新 wiki、时间线、路线图和 hot.md |
-| `ingest` | 导入资料：原件存入 `raw/`，登记到资料清单，写资料卡，整合进 wiki。也用来导入合作者发布的快照 |
-| `publish` | 把可公开的内容发布成快照（一个 zip）分享给合作者：不含对话、纪要、决策记录和历史，发布前由 AI 审阅、你确认 |
-| `lint` | 知识库体检：死链、孤立页、未登记的资料、未归档的会话、到期的决策 |
-| `module` | 启用新模块：research、engineering、outputs |
-| `migrate` | Loom 升级后，迁移项目结构 |
-| `close` | 项目暂停或结束时复盘 |
-
-## 项目结构
-
-```
-<项目>/
-├── .kb.json          项目名、模块、结构版本
-├── AGENTS.md         项目指令（含一段由 Loom 维护的区块）；CLAUDE.md 只引用它
-├── 00-Hub/           hot · index · timeline · roadmap · log
-├── 10-Brief/         项目简报
-├── 20-Sources/       inbox · raw · cards · sources-index
-├── 30-Wiki/          知识页（首次用到时创建）
-├── 40-Sessions/      raw（原始对话）· notes（会话纪要）· decisions（决策记录）
-├── 50-Outputs/       产出物（outputs 模块）
-└── repos/ + repos.yaml   代码库（engineering 模块；各自是独立的 git 仓库，不纳入外层仓库）
+```bash
+mkdir my-project && cd my-project
 ```
 
-## 不同工具中的能力差异
+Start your AI assistant in this folder and say: *"Initialize this project with Loom."* The AI will ask a few questions (name, nature of the project, existing material), then generate the directory structure, `AGENTS.md`, the project brief, and `hot.md`. A folder that already contains material is fine — init registers it.
 
-| 能力 | Claude Code | Codex、Gemini CLI、Cursor 等 |
+**3. Your first wrapup**
+
+After discussing for a while, say: *"Wrap up this discussion with Loom."* (In Claude Code you can also type `/loom wrapup`.) The AI writes a session note; writes a decision record if a decision was made; updates the wiki pages, the roadmap, and `hot.md`; and finally makes one commit in the project's own git repository.
+
+**4. The next session**
+
+Open a new session in the same folder. In Claude Code, the hook injects `hot.md` and reminders at the start; in other tools, the note in `AGENTS.md` tells the AI to read them itself. You can also just say: *"This is a Loom project. Read hot.md first, then continue with …"*
+
+**Check that it works**
+
+1. Run `doctor` to check the environment — Windows: `py "$HOME/.agents/skills/loom/scripts/loom.py" doctor`; macOS/Linux: `python3 ~/.agents/skills/loom/scripts/loom.py doctor`.
+2. Your AI lists `loom` among its available skills; after init, the project contains `.kb.json`, `AGENTS.md`, `00-Hub/hot.md`, and `10-Brief/project-brief.md`.
+3. In Claude Code: a new session in a Loom project starts with a "Loom project context" block, and after the session ends the exported conversation appears under `40-Sessions/raw/`. `doctor` only checks files and configuration and cannot prove the hooks are live — this real-session check is the one that counts.
+
+If your Claude Code version does not load the skill directory as a plugin, `py tools/deploy.py --claude-hooks` writes the same hooks into `~/.claude/settings.json` as a fallback.
+
+To create a project without going through the AI: `py "$HOME/.agents/skills/loom/scripts/loom.py" init --name my-project --language en` (use `python3` instead of `py` on macOS/Linux; `--language zh-CN` for a Chinese project; omitted means English).
+
+## What it solves
+
+| Common difficulty | What Loom does about it | See it in the example |
 |---|---|---|
-| 初始化、归档、导入资料、发布快照、体检、模块、迁移 | ✅ | ✅（需要 AI 能执行本地命令） |
-| 会话结束时自动导出对话 | ✅ 由 hook 完成 | ❌ 对话不会进入 `40-Sessions/raw/`，靠会话纪要留存 |
-| 会话开始时自动注入 hot.md 和提醒 | ✅ 由 hook 完成 | ❌ 靠 `AGENTS.md` 中的提示，由 AI 自己去读 |
-| 执行 Loom 操作时补导出之前的对话 | ✅ | ❌（目前只支持 Claude Code 的会话记录格式） |
-| 调用方式 | `/loom <操作>`，或用自然语言 | 自然语言；有时需要明确说"用 loom" |
+| The next session doesn't know where things stand, so you explain from scratch | `00-Hub/hot.md` holds the current focus, open questions, and next steps, and is read first in every session | [hot.md](examples/reading-notes/en/00-Hub/hot.md), [roadmap](examples/reading-notes/en/00-Hub/roadmap.md) |
+| Conclusions live in chat and are hard to find or reuse | wrapup turns a discussion into a session note and writes new understanding into topic-organized wiki pages | [session note](examples/reading-notes/en/40-Sessions/notes/2026-10-01_v1-scope.md), [wiki page](examples/reading-notes/en/30-Wiki/v1-scope.md) |
+| You forgot why a choice was made, and the same question keeps coming back | one record per decision: options, trade-offs, strongest counterargument, confidence, and a review date | [DR-2026-001](examples/reading-notes/en/40-Sessions/decisions/DR-2026-001_v1-local-excerpts.md) |
+| Material piles up while knowledge doesn't; nobody can say where a claim came from | ingest keeps the original, registers the source, distills a source card, then integrates it into the wiki with each claim citing its source | [original](examples/reading-notes/en/20-Sources/raw/approach-options.md) → [source card](examples/reading-notes/en/20-Sources/cards/approach-options-card.md) → [wiki page](examples/reading-notes/en/30-Wiki/v1-scope.md) |
+| The project spans several repositories and there is no home for background and decisions | project context lives in the knowledge base; code repositories live under `repos/`, each managed on its own | see "Engineering" below |
+| You want to share results, not the whole process | publish exports a reviewed snapshot without conversations, session notes, or history | see "Deliverables and sharing" below |
 
-在 Claude Code 中，skill 目录里的 `.claude-plugin/plugin.json` 和 `hooks/hooks.json` 会让这个 skill 同时被加载为插件 `loom@skills-dir`，从而拿到 hook。其他工具会忽略这两个文件。
+What you get in return: a new session doesn't need the background explained again; every conclusion and decision can be traced to its basis; knowledge accumulates with the project instead of vanishing when a chat window closes; and everything is your own files, portable to another AI tool.
 
-如果某个 Claude Code 版本没有把 skill 目录加载为插件，可以改用 `py tools/deploy.py --claude-hooks`，把同样的 hook 写进 `~/.claude/settings.json`。
+## Three common ways to use it
 
-**其他注意事项：**
+The core loop (discuss → wrap up → continue) is the same for any project. The three uses below are opt-in and correspond to three optional modules.
 
-- 需要本机有 Python 3 和 git。
-- Claude Code 会按 `cleanupPeriodDays` 定期清理会话记录，建议把这个值调大，例如设为 365。
-- 所有项目共用同一个 Loom 版本。如果新版本改变了项目结构，按照 `migrate` 迁移一次即可。
+**Research.** You have papers, reports, and web pages to digest. Put the files into `20-Sources/inbox/` and say "ingest these materials with Loom": originals are stored untouched in `raw/` and registered in the source index, important ones get a source card, and new knowledge is integrated into the wiki with its source cited; anything that conflicts with what you already hold is reported to you separately. The `research` module adds literature-card and experiment-record templates.
 
-## 参考与致谢
+**Engineering.** Design discussions, design documents, and decisions live in the knowledge base. Code repositories are registered in `repos.yaml` and live under `repos/`, each an independent git repository whose contents the knowledge base does not track. When you start a session inside one of those repositories to write code, the AI can still go back to the knowledge base for designs and decisions. The `engineering` module adds design-document and ADR templates, and decision records can reference the related commits.
 
-- Andrej Karpathy 的 LLM Wiki 模式：原始资料不可变，wiki 由 LLM 维护，由一份 schema 约束 LLM 的行为；核心操作是 ingest、query、lint。
-- [claude-obsidian](https://github.com/AgriciDaniel/claude-obsidian)：借鉴了它的若干约定，包括 inbox → raw → wiki 的资料流、用标记文件识别知识库、hot/index/log 三件套。
-- [Agent Skills](https://agentskills.io) 规范。
+**Deliverables and sharing.** Documents meant for other people — design docs, reports — go under `50-Outputs/` (the `outputs` module), with a version and a status, linked to the session notes, decisions, and wiki pages they rest on. To hand results to a collaborator, `publish` builds a snapshot zip: only the current state and results; conversations, session notes, decision records, and history never go in. Before anything is generated, the AI lists the files and the things worth a second look (local paths, email addresses, secret-like strings), and you confirm. The recipient hands the zip to `ingest` in their own Loom project.
 
-参与开发请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
+All operations (`/loom <operation>` in Claude Code; in other tools, just say "use loom to …"):
+
+| Operation | What it does |
+|---|---|
+| `init` | Set up a project: interview, choose modules, generate the layout and the project brief, register existing material |
+| `wrapup` | When a discussion ends: write the session note and decision records, update the wiki, timeline, roadmap, and hot.md |
+| `ingest` | Bring in material: store the original in `raw/`, register it in the source index, write a source card, integrate into the wiki. Also imports snapshots published by collaborators |
+| `publish` | Export the shareable part of the knowledge base as a snapshot (a zip): no conversations, notes, decision records, or history; reviewed by the AI and confirmed by you first |
+| `lint` | Health check: dead links, orphan pages, unregistered sources, unarchived sessions, decisions due for review |
+| `module` | Enable modules: `research` (literature cards, experiment records), `engineering` (linked code repos), `outputs` (deliverables with versions) |
+| `migrate` | Migrate a project's structure after a Loom upgrade |
+| `close` | Review and wind down a project that is paused or finished |
+
+## Support scope and privacy
+
+**Languages.** Projects are created in English (`en`) or Chinese (`zh-CN`) via `init --language`; project files, templates, indexes, and reports are generated in the project's language. Projects created by older Loom versions are treated as Chinese and stay Chinese. **The skill's operating rules (`SKILL.md` and `references/`) are currently written in Chinese only.** You can drive every feature in English — the scripts are language-neutral — but the rule documents themselves have not been translated, and behavioral equivalence of an English ruleset has not been verified.
+
+**Tool differences.** Loom is used and tested in **Claude Code** today. It is a standard Agent Skill and is designed to work in other tools that can run local commands, but how reliably those tools trigger it and follow its workflows has not been fully verified yet — reports are welcome. Raw conversation auto-export and context injection work **only in Claude Code**, via hooks:
+
+| Capability | Claude Code | Other Agent Skills tools (Codex, Gemini CLI, etc.) |
+|---|---|---|
+| init, wrapup, ingest, publish, lint, module, migrate | ✅ | Expected to work (the AI must be able to run local commands); not fully verified |
+| Auto-export of the conversation when a session ends | ✅ via hook | ❌ — conversations don't reach `40-Sessions/raw/`; session notes carry the content |
+| Auto-injection of hot.md and reminders at session start | ✅ via hook | ❌ — `AGENTS.md` tells the AI to read them itself |
+| Re-export of earlier conversations during Loom operations | ✅ | ❌ (only Claude Code's transcript format is supported today) |
+| Invocation | `/loom <operation>`, or natural language | Natural language; sometimes say "use loom" explicitly |
+
+In Claude Code, `.claude-plugin/plugin.json` and `hooks/hooks.json` in the skill directory make it load as the plugin `loom@skills-dir`, which is where the hooks come from; other tools ignore those files.
+
+**Notes:**
+
+- Claude Code periodically cleans up transcripts (`cleanupPeriodDays`, about 30 days by default). Loom re-exports conversations from these transcripts; consider setting it to 365 or more in `~/.claude/settings.json`.
+- All projects share the installed Loom version. When a new version changes the project structure, `migrate` brings each project forward once.
+
+**Privacy and git.**
+
+- Your knowledge base is local Markdown files, but anything the assistant reads may be sent to the AI service you use — local storage does not mean content never leaves your machine.
+- The Claude Code hooks export raw conversations into `40-Sessions/raw/` when a session in a Loom project ends; this happens only inside Loom projects, and removing the hook disables it.
+- After a wrapup, ingest, or publish, the AI makes one commit in the project's own git repository; the workflow tells it to commit only the files that operation touched. Raw conversations and sources go into this local repository by default — use `.gitignore` for files you don't want committed. Loom never creates a remote or pushes, and the hooks do not rewrite existing commits unless you opt in (`auto_amend` in `.kb.json` is off by default).
+- We recommend keeping project repositories private and sharing reviewed snapshots (`publish`) instead — snapshots never include conversations or history, and you confirm the file list before anything is generated. The cleaning rules are mechanical and do not replace your own review of the content.
+
+## Further reading
+
+**Directory layout of a project:**
+
+```
+<project>/
+├── .kb.json            project name, modules, schema version, language
+├── AGENTS.md           project instructions (one block is maintained by Loom); CLAUDE.md just references it
+├── 00-Hub/             current focus (hot) · index · timeline · roadmap · log
+├── 10-Brief/           the project brief: problem, goals, scope, constraints
+├── 20-Sources/         inbox · raw originals · source cards · source index
+├── 30-Wiki/            knowledge pages maintained by the AI
+├── 40-Sessions/        raw conversations · session notes · decision records
+├── 50-Outputs/         deliverables (outputs module)
+└── repos/ + repos.yaml linked code repositories (engineering module; each its own git repo)
+```
+
+**More documents:**
+
+- Operations reference and rules: [`skills/loom/SKILL.md`](skills/loom/SKILL.md) and [`skills/loom/references/`](skills/loom/references/) (currently Chinese only, see above)
+- Migrating projects after an upgrade: [`skills/loom/references/migrate.md`](skills/loom/references/migrate.md)
+- Uninstalling and rolling back: [`docs/uninstall.md`](docs/uninstall.md)
+- Reporting security issues: [SECURITY.md](SECURITY.md)
+- Release notes: [CHANGELOG.md](CHANGELOG.md) (Chinese)
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) (Chinese)
+
+## Acknowledgements
+
+- Andrej Karpathy's LLM Wiki pattern: raw sources are immutable, the wiki is maintained by the LLM, a schema constrains the LLM's behavior; the core operations are ingest, query, lint.
+- [claude-obsidian](https://github.com/AgriciDaniel/claude-obsidian): borrowed conventions including the inbox → raw → wiki material flow, the marker file identifying the knowledge base, and the hot/index/log trio.
+- The [Agent Skills](https://agentskills.io) specification.
