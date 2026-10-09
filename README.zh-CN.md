@@ -98,7 +98,7 @@ flowchart LR
 Windows：
 
 ```powershell
-git clone <GITHUB-REPO-URL> loom
+git clone https://github.com/Maxwell-FreeFOV/loom.git loom
 cd loom
 py tools/deploy.py
 ```
@@ -106,14 +106,14 @@ py tools/deploy.py
 macOS / Linux：
 
 ```bash
-git clone <GITHUB-REPO-URL> loom
+git clone https://github.com/Maxwell-FreeFOV/loom.git loom
 cd loom
 python3 tools/deploy.py
 ```
 
 skill 本体会放到 `~/.agents/skills/loom`，然后链接进已安装工具的 skills 目录（默认 `~/.claude/skills/loom` 和 `~/.codex/skills/loom`；用 `--agents claude,codex,gemini` 指定）。部署前会先跑一遍仓库自带的端到端测试，其中的 hook 测试需要 Bash；没有 Bash 或想跳过时加 `--skip-tests`。
 
-也可以把 `skills/loom/` 手工复制到某个工具的 skills 目录。本仓库发布到 GitHub 后，还可以用 [skills CLI](https://github.com/vercel-labs/skills)：`npx skills add <owner>/loom -g --skill loom`（需要 Node/npm；`<owner>` 是占位符，发布时替换为真实的仓库地址）。
+也可以把 `skills/loom/` 手工复制到某个工具的 skills 目录，或者用 [skills CLI](https://github.com/vercel-labs/skills)：`npx skills add Maxwell-FreeFOV/loom -g --skill loom`（需要 Node/npm）。
 
 **2. 创建项目**
 

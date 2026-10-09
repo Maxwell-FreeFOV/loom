@@ -14,7 +14,7 @@
 ### Reporting a vulnerability
 
 Please report security issues through **GitHub Private Vulnerability Reporting**:
-`<GITHUB-REPO-URL>/security` (the repository owner needs to enable it in the repository settings —
+`https://github.com/Maxwell-FreeFOV/loom/security` (the repository owner needs to enable it in the repository settings —
 if the page is unavailable, open a regular issue that asks for a private contact, without any detail).
 
 When reporting:
@@ -37,7 +37,7 @@ abuse in snapshot import, leaking another project's conversations during export.
 
 ### 报告安全问题
 
-请通过 **GitHub Private Vulnerability Reporting** 报告：`<GITHUB-REPO-URL>/security`
+请通过 **GitHub Private Vulnerability Reporting** 报告：`https://github.com/Maxwell-FreeFOV/loom/security`
 （需要仓库所有者在仓库设置中开启；如果页面不可用，可以开一个普通 issue 询问私下联系方式，但不要包含任何细节）。
 
 报告时请注意：

@@ -98,7 +98,7 @@ Requirements: **Python 3.12+** and **git**. Claude Code hooks additionally need 
 Windows:
 
 ```powershell
-git clone <GITHUB-REPO-URL> loom
+git clone https://github.com/Maxwell-FreeFOV/loom.git loom
 cd loom
 py tools/deploy.py
 ```
@@ -106,14 +106,14 @@ py tools/deploy.py
 macOS / Linux:
 
 ```bash
-git clone <GITHUB-REPO-URL> loom
+git clone https://github.com/Maxwell-FreeFOV/loom.git loom
 cd loom
 python3 tools/deploy.py
 ```
 
 The skill itself lands in `~/.agents/skills/loom`, and deploy links it into the skills directories of the tools it finds (`~/.claude/skills/loom` and `~/.codex/skills/loom` by default; `--agents claude,codex,gemini` to choose). Deploy first runs the repository's end-to-end tests, and the hook tests among them need Bash; add `--skip-tests` if you have no Bash or want to skip them.
 
-Alternatively, copy `skills/loom/` into a tool's skills directory by hand, or — once this repository is on GitHub — use the [skills CLI](https://github.com/vercel-labs/skills): `npx skills add <owner>/loom -g --skill loom` (needs Node/npm; `<owner>` is a placeholder replaced with the real repository owner at release).
+Alternatively, copy `skills/loom/` into a tool's skills directory by hand, or use the [skills CLI](https://github.com/vercel-labs/skills): `npx skills add Maxwell-FreeFOV/loom -g --skill loom` (needs Node/npm).
 
 **2. Create a project**
 
