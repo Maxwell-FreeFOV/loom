@@ -349,6 +349,9 @@ class TestAutoAmend(TempDirTest):
         self.proj = self.tmp / "proj"
         init_project(self.proj)
         git(self.proj, "init", "-q")
+        # export_session.py 自己调 git commit --amend，不带 -c 身份；CI runner 没有全局身份，写进仓库配置
+        git(self.proj, "config", "user.name", "loom-test")
+        git(self.proj, "config", "user.email", "loom-test@example.com")
         git(self.proj, "add", "-A")
         git(self.proj, "commit", "-qm", "init")
         self.t = self.tmp / "s.jsonl"
