@@ -16,8 +16,8 @@ This project is a Loom project knowledge base (the root contains a `.kb.json`). 
 ## Project overview
 
 - Starting point: two short notes — my requirements and three candidate approaches (demo data, invented for Loom's documentation).
-- Current phase: defining the v1 feature list.
-- See `10-Brief/project-brief.md`, `00-Hub/hot.md`, `00-Hub/roadmap.md`
+- For the current phase and focus, see `00-Hub/hot.md`. State that changes is written only there; this file holds what rarely changes
+- See also `10-Brief/project-brief.md`, `00-Hub/roadmap.md`
 
 ## Project-specific conventions
 

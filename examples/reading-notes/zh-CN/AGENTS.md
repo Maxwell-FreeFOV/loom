@@ -16,8 +16,8 @@
 ## 项目概况
 
 - 起点：两份简短的笔记——我的需求和三个候选方案（演示数据，为 Loom 文档虚构）。
-- 当前阶段：定义首版功能清单。
-- 详见 `10-Brief/project-brief.md`、`00-Hub/hot.md`、`00-Hub/roadmap.md`
+- 当前阶段和重点见 `00-Hub/hot.md`。会变的状态只写在那里，本文件只写不常变的内容
+- 详见 `10-Brief/project-brief.md`、`00-Hub/roadmap.md`
 
 ## 项目特有约定
 

@@ -541,6 +541,19 @@ class TestBilingual(TempDirTest):
         self.assertIn("当前重点", read(proj / "00-Hub/hot.md"))
         self.assertIn("## Loom 知识库", read(proj / "AGENTS.md"))
 
+    def test_agents_template_keeps_state_in_hot(self):
+        """AGENTS.md 模板不预置"当前阶段"这类会变的状态（指向 hot.md），并预置"以什么为准"和"不再沿用的说法"两小节。"""
+        cases = {"zh-CN": (r"(?m)^- 当前阶段：", ("### 以什么为准", "### 不再沿用的说法")),
+                 "en": (r"(?m)^- Current phase:", ("### Source of truth", "### Statements no longer in use"))}
+        for lang, (state_line, headings) in cases.items():
+            proj = self.tmp / lang
+            init_project(proj, "demo", lang=lang)
+            text = read(proj / "AGENTS.md")
+            self.assertNotRegex(text, state_line, lang)
+            self.assertIn("`00-Hub/hot.md`", text, lang)
+            for heading in headings:
+                self.assertIn(heading, text, lang)
+
     def test_en_project_index_and_lint_are_english(self):
         proj = self.tmp / "en"
         init_project(proj, "enproj", lang="en")
