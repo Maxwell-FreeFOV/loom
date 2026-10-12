@@ -12,70 +12,9 @@ A project that runs for weeks with an AI assistant produces more than its final 
 
 Loom is a project knowledge-base skill for AI assistants. It has the AI turn sources, discussions, and decisions into interlinked local Markdown files, with each kind of knowledge in its own place and every change recorded by git. The project ends up with a record you can read, check, and share, and that any later session can continue from.
 
-## What you get
+## What one wrapup leaves behind
 
-- **A next session that starts where you stopped.** One page, [`hot.md`](examples/reading-notes/en/00-Hub/hot.md), holds the current focus, open questions, recent decisions, and next steps. It is the first thing a new session reads, so you don't explain the background again.
-- **Decisions that stay decided.** One [record per decision](examples/reading-notes/en/40-Sessions/decisions/DR-2026-001_v1-local-excerpts.md): the options compared, the trade-offs, the strongest counterargument, your confidence, what you gave up, and a review date. Loom reminds you when a review is due, so a choice is revisited when its date or its constraints come up, not whenever someone forgets the reasoning.
-- **Conclusions you can trace.** Originals are stored untouched and registered. New understanding goes into topic-organized wiki pages, where each claim cites the source or session note it rests on: [original](examples/reading-notes/en/20-Sources/raw/approach-options.md) → [source card](examples/reading-notes/en/20-Sources/cards/approach-options-card.md) → [wiki page](examples/reading-notes/en/30-Wiki/v1-scope.md). When new material contradicts what you already hold, you are told.
-- **Results you can share without the process.** `publish` exports a reviewed snapshot of the current state. Conversations, session notes, decision records, and history never go in, and you confirm the file list first.
-- **A record that is yours.** Everything is local Markdown under git: you can read it, diff it, correct it, and roll it back, and it moves with you to another AI tool.
-
-## When it pays off
-
-Loom repays its upkeep when a project is long, has real decisions in it, and produces judgment as much as it produces files.
-
-| Situation | Without a record | What Loom keeps |
-|---|---|---|
-| Weeks or months of research, option selection, or product definition | Conclusions are buried in chats and the same question is argued again | Wiki pages by topic; one record per decision, with a review date |
-| Many papers, reports, and web pages to digest | Material piles up and nobody can say where a claim came from | Untouched originals, a source index, source cards, and claims that cite their source |
-| Engineering that spans several repositories | The reasoning behind the design belongs to no single repository | Project context and decisions above the repositories, linked to the related commits |
-| Work that pauses for weeks, changes hands, or moves to another AI tool | The context lives in one person's head or one tool's history | The brief, current focus, timeline, and roadmap as plain files |
-| Delivering results to a client or collaborator | Sharing means handing over everything, or rewriting by hand | Versioned deliverables, and reviewed snapshots that leave the process out |
-
-Rows two, three, and five correspond to the optional `research`, `engineering`, and `outputs` modules, described in [Three common ways to use it](#three-common-ways-to-use-it). As a rough threshold: more than a handful of sessions on the same project, with choices you will have to explain later. You can start from a one-line idea, a pile of existing material (documents, PDFs, saved web pages), or one or more existing code repositories.
-
-**It is probably not worth it if:**
-
-- the task is finished in one or two sessions, because the record will not be read again;
-- you write code in a single repository that already has good docs, where its `AGENTS.md` and git history carry enough;
-- you only use a web chat window where the AI cannot touch local files;
-- you expect it to remember everything automatically once installed;
-- you need real-time multi-user editing, since Loom shares work by publishing reviewed snapshots;
-- you are building an agent product and need memory for its end users, which is a job for a memory layer.
-
-**What it asks of you:**
-
-- **You start the archiving.** If you stop wrapping up, the record falls behind, and an outdated `hot.md` misleads the next session more than no record would. `lint` and, in Claude Code, the session-start reminder list sessions that have not been archived, but they do not archive them for you.
-- **A wrapup takes a few minutes.** The AI reads and writes several files and makes a commit. In Claude Code, Loom's rules and `hot.md` are also injected at the start of every session.
-- **Finding things is an index page plus file search, inside one project.** There is no semantic search and nothing that spans projects.
-
-## Loom and AI memory
-
-Assistants increasingly have memory of their own: they note your preferences, pick facts out of conversations, or summarize past sessions and bring them back automatically. Loom is not one of these and does not replace them. It does not change the model's memory at all. It saves and organizes project records and has the AI read them when needed. There is no vector database, background service, or web UI, only files, git, and scripts that use the Python standard library.
-
-| | Assistant memory | Loom |
-|---|---|---|
-| Holds | Your preferences and habits, and facts picked up along the way | One project's record: sources, knowledge pages, decisions, deliverables, conversations |
-| Written | Automatically, in the background | By the AI when you start a wrapup or an ingest, following a fixed workflow; each one is a git commit |
-| Organized as | Remembered items, brought back by relevance | Typed notes: facts, discussions, decisions, deliverables, and originals each have one home |
-| Decisions | Remembered as facts, if at all | Options, reasoning, counterargument, confidence, and a date to review |
-| Checking it | Depends on the product | Plain files you can read, diff, correct, and roll back |
-| Sharing | Usually tied to an account or a tool | Reviewed snapshots for collaborators; the files work in any tool that can read them |
-| Scope | Follows you across projects | Stays in one project folder |
-
-The two complement each other: memory keeps how you like to work, and Loom keeps what the project is and why. Carrying on from the last session is the part that memory features also cover. If that is all you need, built-in memory is enough and Loom would only add upkeep. The rest is what Loom is for: knowledge with sources, decisions with their reasoning and a review date, a history you can audit, and sharing with a boundary.
-
-## How it works
-
-- **How you use it:** in natural language — "initialize this project with Loom", "wrap up this discussion", "ingest these materials". The AI follows Loom's workflow to read and write files in your project folder.
-- **What is automatic:** archiving is something you start. In Claude Code, hooks additionally export the raw conversation when a session ends and inject the current focus when one starts; other tools don't have this layer (see [support scope](#support-scope-and-privacy)).
-- **Where the result lives:** in your project folder — a set of interlinked Markdown files, with every change recorded by git. Obsidian is a convenient way to browse them, not a prerequisite.
-
-> A *skill* is a set of instructions and scripts that let an AI assistant follow a fixed workflow on your files. Loom follows the open [Agent Skills](https://agentskills.io) standard: install it once on your machine and every project can use it; project folders hold only data.
-
-## One full cycle
-
-The walkthrough uses a fictional demo project, `reading-notes-demo` (a personal reading-excerpt tool; all content is invented for demonstration). The whole cycle is three sentences:
+The example is a fictional demo project, `reading-notes-demo` (a personal reading-excerpt tool; all content is invented for demonstration). The whole cycle is three sentences:
 
 ```text
 Initialize this project with Loom. The goal is a personal reading-excerpt tool.
@@ -91,24 +30,37 @@ What the second sentence (the wrapup) leaves behind:
 
 | Before the wrapup | After the wrapup | How the next session uses it |
 |---|---|---|
+| A spoken decision to defer sharing | A [decision record](examples/reading-notes/en/40-Sessions/decisions/DR-2026-001_v1-local-excerpts.md) with the options compared, the rationale, the strongest counterargument, and a review date | The reasoning is on file; revisit it on the review date or when a constraint changes |
 | The discussion in this chat | A [session note](examples/reading-notes/en/40-Sessions/notes/2026-10-01_v1-scope.md) with conclusions and open questions | Read when background is needed |
-| A spoken decision to defer sharing | A [decision record](examples/reading-notes/en/40-Sessions/decisions/DR-2026-001_v1-local-excerpts.md) with the options compared, the rationale, the strongest counterargument, and a review date | Avoid re-discussing; revisit when constraints change |
+| What was learned along the way | A [wiki page](examples/reading-notes/en/30-Wiki/v1-scope.md) whose claims cite the source or note they rest on | Check where a claim came from |
 | To-dos mentioned in chat | [hot.md](examples/reading-notes/en/00-Hub/hot.md) and the [roadmap](examples/reading-notes/en/00-Hub/roadmap.md) updated | Know which next step to continue from |
 
-`00-Hub/hot.md` is the first thing a new session reads. After the wrapup it looks like this (excerpt):
+The decision record is the part a chat log has no equivalent for. After the wrapup it looks like this (excerpt):
 
 ```markdown
-## Current focus
-- Turn the v1 scope ([[v1-scope]]) into a concrete feature list.
+---
+id: DR-2026-001
+status: decided
+confidence: 70%
+review_date: 2026-12-01
+---
 
-## Open questions
-- Does plain-text search stay good enough at a few hundred excerpts?
+## 3. Options
+| Option | Core benefit | Core cost | Worst case | Reversibility |
+|---|---|---|---|---|
+| A. Markdown + local search | zero infrastructure, files stay mine | weak structured queries | search gets unwieldy at scale | reversible |
+| B. SQLite + CLI | structured, fast filtered queries | schema + import friction | the tool becomes the chore | reversible |
+| C. Web app | sync and sharing | server, accounts, maintenance | project dies under its own weight | irreversible-ish |
 
-## Recent decisions
-- [[DR-2026-001_v1-local-excerpts]]: v1 supports local excerpts and search; sharing deferred.
+## 5. Strongest counterargument
+- Plain-text search may turn out to be too weak once there are hundreds of excerpts, and retrofitting structure onto loose notes is painful.
 
-## Next steps
-- Write the minimal v1 feature list — see [[roadmap]]
+## 7. Decision
+- **Choice**: option A — v1 supports local excerpting and search; multi-person sharing is deferred.
+- **What was given up**: multi-device sync and sharing in v1.
+
+## 9. Signals and stop-loss
+- Signals that it should be reconsidered: regular frustration finding excerpts, or a real second user appears.
 ```
 
 The complete example is in [`examples/reading-notes/en/`](examples/reading-notes/en/) (and in Chinese in [`examples/reading-notes/zh-CN/`](examples/reading-notes/zh-CN/)). To try it hands-on, **copy the example into a separate directory** — do not run init inside the Loom source repository.
@@ -123,6 +75,45 @@ flowchart LR
 ```
 
 Archiving is something you start. The Claude Code hooks (raw conversation export, context injection) are a separate enhancement layer: raw export does no semantic organization and is not a substitute for a wrapup.
+
+## What you get
+
+- **A record for each decision.** One [record per decision](examples/reading-notes/en/40-Sessions/decisions/DR-2026-001_v1-local-excerpts.md): the options compared, the trade-offs, the strongest counterargument, your confidence, what you gave up, and a review date. Loom reminds you when a review is due, so a choice can be revisited on its date or when its constraints change, with the original reasoning in front of you.
+- **Conclusions you can trace.** Originals are stored untouched and registered. New understanding goes into topic-organized wiki pages, where each claim cites the source or session note it rests on: [original](examples/reading-notes/en/20-Sources/raw/approach-options.md) → [source card](examples/reading-notes/en/20-Sources/cards/approach-options-card.md) → [wiki page](examples/reading-notes/en/30-Wiki/v1-scope.md). When new material contradicts what you already hold, you are told.
+- **Results you can share without the process.** `publish` exports a reviewed snapshot of the current state. Conversations, session notes, decision records, and history never go in, and you confirm the file list first.
+- **A record that is yours.** Everything is local Markdown under git: you can read it, diff it, correct it, and roll it back, and it moves with you to another AI tool.
+- **A next session that starts where you stopped.** One page, [`hot.md`](examples/reading-notes/en/00-Hub/hot.md), holds the current focus, open questions, recent decisions, and next steps. It is the first thing a new session reads. Assistants' built-in memory covers part of this as well; see [Loom and AI memory](#loom-and-ai-memory).
+
+## When it pays off
+
+Loom repays its upkeep when a project is long, has real decisions in it, and produces judgment as much as it produces files.
+
+| Situation | Without a record | What Loom keeps |
+|---|---|---|
+| Weeks or months of research, option selection, or product definition | Conclusions are buried in chats and the same question is argued again | Wiki pages by topic; one record per decision, with a review date |
+| Many papers, reports, and web pages to digest | Material piles up and nobody can say where a claim came from | Untouched originals, a source index, source cards, and claims that cite their source |
+| Engineering that spans several repositories | The reasoning behind the design belongs to no single repository | Project context and decisions above the repositories, linked to the related commits |
+| Work that pauses for weeks, changes hands, or moves to another AI tool | The context lives in one person's head or one tool's history | The brief, current focus, timeline, and roadmap as plain files |
+| Handing results to someone else | Sharing means handing over everything, or rewriting by hand | Versioned deliverables under `50-Outputs/` for any reader; for a collaborator who also uses Loom, a reviewed snapshot that leaves the process out |
+
+Rows two, three, and five correspond to the optional `research`, `engineering`, and `outputs` modules, described in [Three common ways to use it](#three-common-ways-to-use-it). As a rough threshold: more than a handful of sessions on the same project, with choices you will have to explain later. You can start from a one-line idea, a pile of existing material (documents, PDFs, saved web pages), or one or more existing code repositories.
+
+Loom is built for one person working with an AI over many sessions. Several people writing to the same knowledge base is not something it has been designed or tested for.
+
+**It is probably not worth it if:**
+
+- the task is finished in one or two sessions, because the record will not be read again;
+- you write code in a single repository that already has good docs, where its `AGENTS.md` and git history carry enough;
+- you only use a web chat window where the AI cannot touch local files;
+- you expect it to remember everything automatically once installed;
+- several people need to edit the same knowledge base, since Loom shares work by publishing reviewed snapshots;
+- you are building an agent product and need memory for its end users, which is a job for a memory layer.
+
+**What it asks of you:**
+
+- **You start the archiving.** If you stop wrapping up, the record falls behind, and an outdated `hot.md` misleads the next session more than no record would. `lint` and, in Claude Code, the session-start reminder list sessions that have not been archived, but they do not archive them for you. In Claude Code, Loom also checks `hot.md` against what happened since it was written and tells the AI when it looks stale; [one run of that check](docs/stale-context-check.md) is written up, with its cost.
+- **A wrapup takes a few minutes, and every session carries the context.** A wrapup has the AI read and write several files and make a commit. In Claude Code, each session in a Loom project also starts with Loom's rules (about 7,600 characters) and your `hot.md` (up to 6,000 characters) in its context.
+- **Finding things is an index page plus file search, inside one project.** There is no semantic search and nothing that spans projects.
 
 ## Quickstart
 
@@ -148,7 +139,7 @@ python3 tools/deploy.py
 
 The skill itself lands in `~/.agents/skills/loom`, and deploy links it into the skills directories of the tools it finds (`~/.claude/skills/loom` and `~/.codex/skills/loom` by default; `--agents claude,codex,gemini` to choose). Deploy first runs the repository's end-to-end tests, and the hook tests among them need Bash; add `--skip-tests` if you have no Bash or want to skip them.
 
-Alternatively, copy `skills/loom/` into a tool's skills directory by hand, or use the [skills CLI](https://github.com/vercel-labs/skills): `npx skills add Maxwell-FreeFOV/loom -g --skill loom` (needs Node/npm).
+Alternatively, copy `skills/loom/` into a tool's skills directory by hand.
 
 **2. Create a project**
 
@@ -172,9 +163,17 @@ Open a new session in the same folder. In Claude Code, the hook injects `hot.md`
 2. Your AI lists `loom` among its available skills; after init, the project contains `.kb.json`, `AGENTS.md`, `00-Hub/hot.md`, and `10-Brief/project-brief.md`.
 3. In Claude Code: a new session in a Loom project starts with a "Loom project context" block, and after the session ends the exported conversation appears under `40-Sessions/raw/`. `doctor` only checks files and configuration and cannot prove the hooks are live — this real-session check is the one that counts.
 
-If your Claude Code version does not load the skill directory as a plugin, `py tools/deploy.py --claude-hooks` writes the same hooks into `~/.claude/settings.json` as a fallback. Use one mechanism, not both: if the plugin is loaded as well (`loom@skills-dir` shows up in `/plugin`), every hook runs twice and the session-start context is injected twice. `doctor` warns when it sees hooks in `settings.json`; remove them once the plugin loads.
+The hooks have been checked on Claude Code 2.1.283 and 2.1.294. An older command-line install (2.1.81) did not load them and gave no warning, so if the context block does not appear, update Claude Code first. If your version still does not load the skill directory as a plugin, `py tools/deploy.py --claude-hooks` writes the same hooks into `~/.claude/settings.json` as a fallback. Use one mechanism, not both: if the plugin is loaded as well (`loom@skills-dir` shows up in `/plugin`), every hook runs twice and the session-start context is injected twice. `doctor` warns when it sees hooks in `settings.json`; remove them once the plugin loads.
 
 To create a project without going through the AI: `py "$HOME/.agents/skills/loom/scripts/loom.py" init --name my-project --language en` (use `python3` instead of `py` on macOS/Linux; `--language zh-CN` for a Chinese project; omitted means English).
+
+## How it works
+
+- **How you use it:** in natural language — "initialize this project with Loom", "wrap up this discussion", "ingest these materials". The AI follows Loom's workflow to read and write files in your project folder.
+- **What is automatic:** archiving is something you start. In Claude Code, hooks additionally export the raw conversation when a session ends and inject the current focus when one starts; other tools don't have this layer (see [support scope](#support-scope-and-privacy)).
+- **Where the result lives:** in your project folder — a set of interlinked Markdown files, with every change recorded by git. Obsidian is a convenient way to browse them, not a prerequisite.
+
+> A *skill* is a set of instructions and scripts that let an AI assistant follow a fixed workflow on your files. Loom follows the open [Agent Skills](https://agentskills.io) standard: install it once on your machine and every project can use it; project folders hold only data.
 
 ## Three common ways to use it
 
@@ -184,7 +183,7 @@ The core loop (discuss → wrap up → continue) is the same for any project. Th
 
 **Engineering.** Design discussions, design documents, and decisions live in the knowledge base. Code repositories are registered in `repos.yaml` and live under `repos/`, each an independent git repository whose contents the knowledge base does not track. When you start a session inside one of those repositories to write code, the AI can still go back to the knowledge base for designs and decisions. The `engineering` module adds design-document and ADR templates, and decision records can reference the related commits.
 
-**Deliverables and sharing.** Documents meant for other people — design docs, reports — go under `50-Outputs/` (the `outputs` module), with a version and a status, linked to the session notes, decisions, and wiki pages they rest on. To hand results to a collaborator, `publish` builds a snapshot zip: only the current state and results; conversations, session notes, decision records, and history never go in. Before anything is generated, the AI lists the files and the things worth a second look (local paths, email addresses, secret-like strings), and you confirm. The recipient hands the zip to `ingest` in their own Loom project.
+**Deliverables and sharing.** Documents meant for other people — design docs, reports — go under `50-Outputs/` (the `outputs` module), with a version and a status, linked to the session notes, decisions, and wiki pages they rest on. To hand the knowledge itself to a collaborator, `publish` builds a snapshot zip: only the current state and results; conversations, session notes, decision records, and history never go in, and a deliverable that is not released stays out together with its attachments. Before anything is generated, the AI lists the files and the things worth a second look (local paths, email addresses, secret-like strings, and files the script cannot read such as images and PDFs), and you confirm. The snapshot is a set of linked Markdown files: the recipient hands the zip to `ingest` in their own Loom project, or unzips it and reads it.
 
 All operations (`/loom <operation>` in Claude Code; in other tools, just say "use loom to …"):
 
@@ -198,6 +197,24 @@ All operations (`/loom <operation>` in Claude Code; in other tools, just say "us
 | `module` | Enable modules: `research` (literature cards, experiment records), `engineering` (linked code repos), `outputs` (deliverables with versions) |
 | `migrate` | Migrate a project's structure after a Loom upgrade |
 | `close` | Review and wind down a project that is paused or finished |
+
+## Loom and AI memory
+
+Assistants increasingly have memory of their own: they note your preferences, pick facts out of conversations, or summarize past sessions and bring them back automatically. Loom is not one of these and does not replace them. It does not change the model's memory at all. It saves and organizes project records and has the AI read them when needed. There is no vector database, background service, or web UI, only files, git, and scripts that use the Python standard library.
+
+Some of these memories are project-scoped files too. Claude Code's auto memory, for example, is a folder of Markdown notes per repository, written by Claude and loaded at the start of every session. So the difference is not where the memory lives. It is what goes in and how it gets there:
+
+| | Assistant memory | Loom |
+|---|---|---|
+| Holds | How to work with you: preferences, corrections, and facts picked up along the way | The project's record itself: sources, knowledge pages, decisions, deliverables, conversations |
+| Written | By the assistant on its own, as it goes | By the AI when you start a wrapup or an ingest, following a fixed workflow; each one is a git commit |
+| Organized as | A short list or a few notes, kept small because it is loaded every session | Typed notes: facts, discussions, decisions, deliverables, and originals each have one home |
+| Decisions | Remembered as facts, if at all | Options, reasoning, counterargument, confidence, and a date to review |
+| Checking it | Depends on the product: some are plain files you can edit, some are not | Plain files under git: read, diff, correct, roll back |
+| Sharing | Tied to an account or to one machine | Reviewed snapshots for collaborators; the files work in any tool that can read them |
+| Where it lives | With your account, or on one machine outside the project | In the project folder, under the project's own git history |
+
+The two complement each other: memory keeps how you like to work, and Loom keeps what the project is and why. Carrying on from the last session is the part that memory features also cover. If that is all you need, built-in memory is enough and Loom would only add upkeep. The rest is what Loom is for: knowledge with sources, decisions with their reasoning and a review date, a history you can audit, and sharing with a boundary.
 
 ## Support scope and privacy
 
@@ -249,6 +266,7 @@ In Claude Code, `.claude-plugin/plugin.json` and `hooks/hooks.json` in the skill
 - Operations reference and rules: [`skills/loom/SKILL.md`](skills/loom/SKILL.md) and [`skills/loom/references/`](skills/loom/references/) (currently Chinese only, see above)
 - Migrating projects after an upgrade: [`skills/loom/references/migrate.md`](skills/loom/references/migrate.md)
 - Uninstalling and rolling back: [`docs/uninstall.md`](docs/uninstall.md)
+- One run of the stale-context check, and how to repeat it: [`docs/stale-context-check.md`](docs/stale-context-check.md)
 - Reporting security issues: [SECURITY.md](SECURITY.md)
 - Release notes: [CHANGELOG.md](CHANGELOG.md) (Chinese)
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) (Chinese)
