@@ -4,7 +4,11 @@
   python kb.py index          生成 00-Hub/index.md
   python kb.py lint           检查死链、frontmatter、孤立页、未登记资料、未归档会话、到期决策等
   python kb.py unarchived     列出还没有被会话纪要引用的原始对话
-  python kb.py session-start  Claude Code 的 SessionStart hook 使用：输出项目状态、通用规则、hot.md 和提醒
+  python kb.py session-start  Claude Code 的 SessionStart hook 使用：输出项目状态、提醒和 hot.md
+  python kb.py rules          Claude Code 的 SessionStart hook 使用：输出通用规则
+
+session-start 和 rules 是两条 hook 命令：Claude Code 把每个 hook 的输出按 10000 字符封顶，超出时只给模型
+前 2000 字符的预览。规则和 hot.md 合在一起会超过这个上限，分开输出才能都完整地进入上下文。
 """
 import json
 import os
@@ -33,6 +37,8 @@ DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 RECENT_RAW = 15
 REVIEW_AHEAD_DAYS = 14
 HOT_LINES = 60
+HOT_CHARS = 6000       # 注入 hot.md 时的字符上限：连同状态行和提醒，要留在 hook 输出的 10000 字符上限之内
+HOT_LINT_CHARS = 4000  # hot.md 超过这个字符数时，lint 建议精简
 # 已关闭的决策状态：不再提示复盘。旧项目的中文状态与新英文状态等价。
 CLOSED_DECISIONS = {"已复盘", "已推翻", "reviewed", "superseded"}
 
@@ -71,18 +77,27 @@ def walk(prune):
             yield Path(dirpath) / name
 
 
+def strip_comment(v):
+    """去掉行尾注释（空白之后的 #）。值以引号开头时，注释只从闭合引号之后算：引号里的 # 是内容。"""
+    v = v.strip()
+    end = v.find(v[0], 1) if v[:1] in ('"', "'") else -1
+    if end != -1:
+        return (v[:end + 1] + v[end + 1:].split(" #")[0]).strip()
+    return v.split(" #")[0].strip()
+
+
 def unquote(v):
     """只去掉成对包住整个值的引号；值本身以引号结尾时（例如 采用"某方案"）保持原样。"""
     return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
 
 
 def frontmatter(text):
-    m = FM.match(text)
+    m = FM.match(text.removeprefix("﻿"))  # 带 BOM 的笔记照常识别
     meta = {}
     for line in (m.group(1).splitlines() if m else []):
         k, sep, v = line.partition(":")
         if sep and not line.startswith((" ", "\t", "-")):
-            meta[k.strip()] = unquote(v.split(" #")[0].strip())
+            meta[k.strip()] = unquote(strip_comment(v))
     return meta, bool(m)
 
 
@@ -91,7 +106,7 @@ def collect_notes():
     for p in walk(NOT_NOTES):
         if p.suffix.lower() != ".md" or (p.parent == ROOT and p.name in ROOT_FILES):
             continue
-        text = p.read_text(encoding="utf-8", errors="ignore")
+        text = p.read_text(encoding="utf-8-sig", errors="ignore")
         meta, has_fm = frontmatter(text)
         meta.setdefault("title", p.stem)
         notes.append(Note(p, p.relative_to(ROOT).as_posix(), meta, has_fm, text))
@@ -303,7 +318,7 @@ def cmd_lint():
             add(L(lang, "未在 sources-index.md 中登记的资料", "Sources not registered in sources-index.md"), f"- {r}")
 
     for n in unarchived(notes):
-        add(L(lang, "未归档的会话（运行 /wrapup）", "Unarchived sessions (run /wrapup)"),
+        add(L(lang, "未归档的会话（用 loom 的 wrapup 归档）", "Unarchived sessions (archive them with loom's wrapup)"),
             L(lang, f"- {n.rel}（{n.meta.get('started', '')}，{n.meta['title']}）",
               f"- {n.rel} ({n.meta.get('started', '')}, {n.meta['title']})"))
 
@@ -319,11 +334,17 @@ def cmd_lint():
 
     hot = HUB / "hot.md"
     if hot.exists():
-        lines = FM.sub("", hot.read_text(encoding="utf-8"), count=1).strip().splitlines()
+        body = FM.sub("", hot.read_text(encoding="utf-8-sig"), count=1).strip()
+        lines = body.splitlines()
         if len(lines) > HOT_LINES:
             add("hot.md", L(lang, f"- 有 {len(lines)} 行，超过 {HOT_LINES} 行，建议精简（会话开始时只注入前 {HOT_LINES} 行）",
                             f"- {len(lines)} lines, over the {HOT_LINES}-line budget; consider trimming "
                             f"(only the first {HOT_LINES} lines are injected at session start)"))
+        if len(body) > HOT_LINT_CHARS:
+            add("hot.md", L(lang, f"- 有 {len(body)} 个字符，超过 {HOT_LINT_CHARS} 个，建议精简（每次会话都会注入；"
+                                  f"超过 {HOT_CHARS} 个字符的部分不会注入）",
+                            f"- {len(body)} characters, over the {HOT_LINT_CHARS}-character budget; consider trimming "
+                            f"(it is injected into every session; anything past {HOT_CHARS} characters is not)"))
 
     if not report:
         print(L(lang, "✅ 知识库检查通过，没有发现问题。", "✅ Knowledge base check passed; no issues found."))
@@ -440,23 +461,29 @@ def reminders(notes, lang="zh-CN", at_start=False, current_session=None):
 
 def settle_previous_sessions():
     """作为 hook 调用时（stdin 是 hook JSON），补导出并收尾没有触发 SessionEnd 的上一次会话。
-    返回当前会话的 id；不是作为 hook 调用时返回 None。"""
+    返回（当前会话的 id，会话的来源）；不是作为 hook 调用时返回 (None, None)。
+    来源是 hook 输入里的 source：startup、resume、clear、compact、fork；旧版本的 Claude Code 没有这个字段。"""
     if sys.stdin is None or sys.stdin.isatty():
-        return None
+        return None, None
     try:
         hook = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}")
     except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if not hook.get("session_id"):
-        return None
+        return None, None
+    if not isinstance(hook, dict) or not hook.get("session_id"):
+        return None, None
     import export_session
     export_session.set_root(ROOT)
     export_session.settle_recent(hook["session_id"])
-    return hook["session_id"]
+    return hook["session_id"], hook.get("source")
+
+
+# 接着做的会话（恢复、压缩上下文、分叉）开头已经问过一次要不要补归档，不再打断。
+# startup 和 clear 是一段新对话的开始，上一段已经结束，这时才问；没有 source 时按新对话处理。
+CONTINUED = {"resume", "compact", "fork"}
 
 
 def cmd_session_start():
-    current = settle_previous_sessions()
+    current, source = settle_previous_sessions()
     kb = load_kb()
     lang = kb_language(kb)
     notes = collect_notes()
@@ -464,31 +491,48 @@ def cmd_session_start():
                f"status: {kb.get('status', 'active')}; modules: {', '.join(kb.get('modules', [])) or 'core'}")
     print(L(lang, f"【Loom 项目上下文】{kb.get('name', ROOT.name)}（{status}；知识库根目录：{ROOT}）",
             f"[Loom project context] {kb.get('name', ROOT.name)} ({status}; knowledge base root: {ROOT})"))
-    if RULES.exists():
-        print(L(lang, "\n--- Loom 通用规则（loom skill 的 references/rules.md）---",
-                "\n--- Loom common rules (references/rules.md of the loom skill) ---"))
-        print(RULES.read_text(encoding="utf-8").strip())
-    hot = HUB / "hot.md"
-    if hot.exists():
-        body = FM.sub("", hot.read_text(encoding="utf-8"), count=1).strip().splitlines()
-        print("\n--- 00-Hub/hot.md ---")
-        stale = drift(notes, lang)
-        if stale:
-            print(stale + "\n")
-        print("\n".join(body[:HOT_LINES]))
-        if len(body) > HOT_LINES:
-            print(L(lang, f"……（hot.md 共 {len(body)} 行，以上是前 {HOT_LINES} 行）",
-                    f"... (hot.md has {len(body)} lines; the first {HOT_LINES} lines are shown above)"))
-    items = reminders(notes, lang, at_start=True, current_session=current)
+    # 过期提示和提醒在前，hot.md 在后：hot.md 太长被裁掉尾巴时，前面这些不会丢。
+    stale = drift(notes, lang)
+    if stale:
+        print("\n" + stale)
+    items = reminders(notes, lang, at_start=source not in CONTINUED, current_session=current)
     if items:
         print(L(lang, "\n--- 提醒 ---", "\n--- Reminders ---"))
         print("\n".join(f"- {r}" for r in items))
-    print(L(lang, "\n（以上由 Loom 的 SessionStart hook 注入。归档、导入资料、体检等操作用 loom skill 完成，例如 /loom wrapup。）",
-            "\n(Injected by Loom's SessionStart hook. Archiving, ingesting sources, linting and other operations "
-            "are done with the loom skill, e.g. /loom wrapup.)"))
+    hot = HUB / "hot.md"
+    if hot.exists():
+        body = FM.sub("", hot.read_text(encoding="utf-8-sig"), count=1).strip().splitlines()
+        shown, size = [], 0
+        for line in body[:HOT_LINES]:
+            size += len(line) + 1
+            if size > HOT_CHARS:
+                break
+            shown.append(line)
+        print("\n--- 00-Hub/hot.md ---")
+        print("\n".join(shown))
+        if len(shown) < len(body):
+            print(L(lang, f"……（hot.md 共 {len(body)} 行，以上是前 {len(shown)} 行，其余部分请直接读文件）",
+                    f"... (hot.md has {len(body)} lines; the first {len(shown)} are shown above; "
+                    "read the file for the rest)"))
+    print(L(lang, "\n（以上由 Loom 的 SessionStart hook 注入。通用规则由另一条 hook 注入；上下文里没有“Loom 通用规则”时，"
+                  f"读取 {RULES}。归档、导入资料、体检等操作用 loom skill 完成，例如 /loom wrapup。）",
+            "\n(Injected by Loom's SessionStart hook. The common rules are injected by a separate hook; if "
+            f"\"Loom common rules\" is not in your context, read {RULES}. Archiving, ingesting sources, linting "
+            "and other operations are done with the loom skill, e.g. /loom wrapup.)"))
 
 
-CMDS = {"index": cmd_index, "lint": cmd_lint, "unarchived": cmd_unarchived, "session-start": cmd_session_start}
+def cmd_rules():
+    """通用规则单独由一条 hook 输出，不和 hot.md 挤同一个字符上限（见文件头）。"""
+    lang = kb_language(load_kb())
+    if RULES.exists():
+        print(L(lang, "--- Loom 通用规则（loom skill 的 references/rules.md）---",
+                "--- Loom common rules (references/rules.md of the loom skill) ---"))
+        print(RULES.read_text(encoding="utf-8").strip())
+
+
+CMDS = {"index": cmd_index, "lint": cmd_lint, "unarchived": cmd_unarchived, "session-start": cmd_session_start,
+        "rules": cmd_rules}
+HOOK_CMDS = {"session-start", "rules"}  # 由 hook 调用：不在 Loom 项目中时静默退出
 
 
 def main():
@@ -504,7 +548,7 @@ def main():
         sys.exit(2)
     root = find_root(root_arg)
     if root is None:
-        if args[0] == "session-start":
+        if args[0] in HOOK_CMDS:
             return  # 不是 Loom 项目：hook 静默退出
         # 不在任何项目里，没有项目语言可依，按 CLI 默认姿态用英文
         print("Not in a Loom project (no .kb.json found in this directory or its parents).", file=sys.stderr)

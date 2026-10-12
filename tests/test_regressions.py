@@ -876,6 +876,236 @@ class TestIndexSummary(TempDirTest):
                 self.assertIn("\nsummary:", read(SKILL / "assets/templates/notes" / lang / f"{tid}.md"), f"{lang}/{tid}")
 
 
+# ---------- 0.6.1：注入上限、发布边界、开场询问的时机、导出保真、frontmatter ----------
+
+HOOK_CAP = 9500  # Claude Code 把每个 hook 的输出按 10000 字符封顶，超出只留 2000 字符的预览；留一点余量
+
+
+class TestInjectionCap(TempDirTest):
+    """会话开始的注入分成两条 hook 命令（规则、项目上下文），各自都要在宿主的字符上限之内。"""
+
+    def setUp(self):
+        super().setUp()
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+
+    def kb(self, cmd, stdin=b""):
+        rc, out = run(PY, SCRIPTS / "kb.py", cmd, cwd=self.proj, stdin=stdin)
+        self.assertEqual(rc, 0, out)
+        return out
+
+    def long_hot(self, lines, width):
+        write(self.proj / "00-Hub/hot.md", "---\ntype: hub\ntitle: Hot Context\n---\n\n# 🔥 测试项目\n\n"
+              + "\n".join(f"- 第 {i} 条：" + "长" * width for i in range(lines)) + "\n")
+
+    def test_rules_and_context_are_separate_commands(self):
+        rules, context = self.kb("rules"), self.kb("session-start")
+        self.assertIn("--- Loom 通用规则", rules)
+        self.assertIn("## 4. 知识归属", rules, "规则要完整输出")
+        self.assertNotIn("--- Loom 通用规则", context, "项目上下文里不再带规则正文")
+        self.assertIn("--- 00-Hub/hot.md ---", context)
+        self.assertLessEqual(len(rules), HOOK_CAP, "规则变长到接近上限时，先拆规则再发布")
+
+    def test_hooks_json_runs_both_commands(self):
+        hooks = json.loads(read(SKILL / "hooks/hooks.json"))["hooks"]
+        commands = [h["command"] for g in hooks["SessionStart"] for h in g["hooks"]]
+        self.assertTrue(any(c.endswith("kb session-start") for c in commands), commands)
+        self.assertTrue(any(c.endswith("kb rules") for c in commands), commands)
+
+    def test_long_hot_stays_within_cap_and_keeps_reminders(self):
+        self.long_hot(60, 300)  # 60 行，约 18000 字符：行数没超，字符数远超
+        write(self.proj / "40-Sessions/raw/2026/09/2026-09-30_1000_aaaaaaaa.md",
+              '---\ntype: raw-session\ntitle: "讨论"\nstarted: 2026-09-30 10:00\nprompts: 3\n---\n')
+        out = self.kb("session-start")
+        self.assertLessEqual(len(out), HOOK_CAP)
+        self.assertIn("在第一次回复的开头用一句话问用户", out)
+        self.assertLess(out.index("在第一次回复的开头"), out.index("--- 00-Hub/hot.md ---"), "提醒排在 hot.md 之前，裁剪时不会丢")
+        self.assertIn("以上是前", out, "hot.md 被裁时要说明")
+
+    def test_lint_flags_hot_by_characters(self):
+        self.long_hot(30, 200)  # 30 行，约 6000 字符
+        self.assertIn("个字符", self.kb("lint"))
+
+
+class TestAskOnlyWhenAConversationStarts(TempDirTest):
+    """补归档的询问只在新对话开始时（startup、clear）出现；恢复、压缩、分叉是接着做，不再打断。"""
+
+    def setUp(self):
+        super().setUp()
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+        write(self.proj / "40-Sessions/raw/2026/09/2026-09-30_1000_aaaaaaaa.md",
+              '---\ntype: raw-session\ntitle: "讨论"\nsession_id: aaaaaaaa-old\nstarted: 2026-09-30 10:00\n'
+              'prompts: 3\n---\n')
+
+    def start(self, source):
+        hook = {"session_id": "bbbbbbbb-now", **({"source": source} if source else {})}
+        rc, out = run(PY, SCRIPTS / "kb.py", "session-start", cwd=self.proj, stdin=json.dumps(hook).encode(),
+                      env=self.home_env(self.tmp / "home"))
+        self.assertEqual(rc, 0, out)
+        return out
+
+    def test_asks_on_startup_clear_and_legacy_input(self):
+        for source in ("startup", "clear", None):
+            self.assertIn("在第一次回复的开头用一句话问用户", self.start(source), source)
+
+    def test_passive_on_resume_compact_fork(self):
+        for source in ("resume", "compact", "fork"):
+            out = self.start(source)
+            self.assertNotIn("第一次回复", out, source)
+            self.assertIn("1 个会话尚未归档", out, f"{source}：仍然保留被动提醒")
+
+
+class TestUnreleasedOutputFolder(TempDirTest):
+    """产出物以 50-Outputs/<文档名>/ 为单位：主文档没发布时，目录下的附件也不能进快照。"""
+
+    def setUp(self):
+        super().setUp()
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+        note = lambda type_, extra="": f"---\ntype: {type_}\ntitle: x\n{extra}---\n正文\n"
+        o = self.proj / "50-Outputs"
+        write(o / "草稿/草稿.md", note("output", "status: draft\n"))
+        write(o / "草稿/附图.png", "png")
+        write(o / "草稿/数据/数据.csv", "a,b\n")
+        write(o / "草稿/附录.md", note("wiki"))
+        write(o / "草稿/可以给.md", note("wiki", "publish: true\n"))
+        write(o / "报告/报告.md", note("output", "status: released\nversion: 1.0\nsources: [\"[[x]]\"]\n"))
+        write(o / "报告/图.png", "png")
+        write(o / "不发/不发.md", note("output", "status: released\nversion: 1.0\npublish: false\n"))
+        write(o / "不发/图.png", "png")
+        write(o / "散件/图.png", "png")  # 目录里没有产出文档：行为不变
+
+    def test_attachments_follow_their_document(self):
+        rc, plan = run(PY, SCRIPTS / "snapshot.py", "plan", cwd=self.proj)
+        self.assertEqual(rc, 0, plan)
+        for rel in ("草稿/附图.png", "草稿/数据/数据.csv", "草稿/附录.md", "不发/图.png"):
+            self.assertIn(f"- 50-Outputs/{rel}：所属产出物未发布", plan)
+        rc, out = run(PY, SCRIPTS / "snapshot.py", "build", cwd=self.proj)
+        self.assertEqual(rc, 0, out)
+        with zipfile.ZipFile(next((self.proj / "50-Outputs/_exports").glob("*.zip"))) as z:
+            names = set(z.namelist())
+        self.assertFalse({n for n in names if n.startswith(("50-Outputs/草稿/", "50-Outputs/不发/"))}
+                         - {"50-Outputs/草稿/可以给.md"}, names)
+        self.assertLessEqual({"50-Outputs/草稿/可以给.md", "50-Outputs/报告/报告.md", "50-Outputs/报告/图.png",
+                              "50-Outputs/散件/图.png"}, names)
+
+    def test_plan_lists_unchecked_non_text_files(self):
+        rc, plan = run(PY, SCRIPTS / "snapshot.py", "plan", cwd=self.proj)
+        attention = plan.split("## 需要留意")[1]
+        self.assertIn("50-Outputs/报告/图.png", attention, "脚本没检查内容的文件要让人看到")
+
+
+class TestRawExportFidelity(TempDirTest):
+    def test_code_blocks_are_not_rewritten(self):
+        proj = self.tmp / "proj"
+        init_project(proj)
+        reply = "# 方案\n\n```python\n# 这是注释\nx = 1\n```\n\n~~~~\n## 也是代码\n~~~\n# 还在四个波浪线的围栏里\n~~~~\n\n## 小结\n"
+        lines = [{"type": "user", "sessionId": "cccccccc-code", "timestamp": "2026-09-30T02:00:00Z", "cwd": str(proj),
+                  "message": {"role": "user", "content": "写一段代码"}},
+                 {"type": "assistant", "sessionId": "cccccccc-code", "timestamp": "2026-09-30T02:01:00Z",
+                  "message": {"role": "assistant", "content": [{"type": "text", "text": reply}]}}]
+        src = self.tmp / "t.jsonl"
+        write(src, "\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n")
+        rc, out = run(PY, SCRIPTS / "export_session.py", src, "--root", proj)
+        self.assertEqual(rc, 0, out)
+        text = read(next((proj / "40-Sessions/raw").rglob("*_cccccccc.md")))
+        self.assertIn("\n# 这是注释\nx = 1\n", text, "围栏里的行原样保留")
+        self.assertIn("\n## 也是代码\n~~~\n# 还在四个波浪线的围栏里\n", text, "较短的围栏标记不结束较长的围栏")
+        self.assertIn("\n### 方案\n", text, "围栏外的标题照常降两级")
+        self.assertIn("\n#### 小结\n", text)
+
+
+class TestFrontmatterParsing(TempDirTest):
+    def setUp(self):
+        super().setUp()
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+
+    def test_hash_inside_quotes_is_not_a_comment(self):
+        write(self.proj / "40-Sessions/notes/2026-09-30_修复.md",
+              '---\ntype: session\ntitle: "修复 issue #12 的讨论"\ncreated: 2026-09-30  # 行尾注释\n'
+              'summary: "改用 C# 方案 #1"  # 引号之后的才是注释\ntags: [x]\n---\n')
+        rc, out = run(PY, SCRIPTS / "kb.py", "index", cwd=self.proj)
+        self.assertEqual(rc, 0, out)
+        index = read(self.proj / "00-Hub/index.md")
+        self.assertIn("| 2026-09-30 | [[40-Sessions/notes/2026-09-30_修复\\|修复 issue #12 的讨论]] | 改用 C# 方案 #1 | [x] |",
+                      index)
+
+    def test_bom_does_not_hide_frontmatter(self):
+        """带 BOM 的笔记如果读不出 frontmatter，publish: false 会失效。"""
+        write(self.proj / "30-Wiki/内部.md", "﻿---\ntype: wiki\ntitle: 内部\npublish: false\nraws: [\"[[a]]\"]\n---\n正文\n")
+        write(self.proj / "30-Wiki/公开.md", "﻿---\ntype: wiki\ntitle: 公开\nraws: [\"[[a]]\"]\n---\n见 [[roadmap]]\n")
+        rc, lint = run(PY, SCRIPTS / "kb.py", "lint", cwd=self.proj)
+        self.assertNotIn("缺少 frontmatter", lint)
+        rc, plan = run(PY, SCRIPTS / "snapshot.py", "plan", cwd=self.proj)
+        self.assertIn("30-Wiki/内部.md：笔记标了 publish: false", plan)
+        rc, out = run(PY, SCRIPTS / "snapshot.py", "build", cwd=self.proj)
+        self.assertEqual(rc, 0, out)
+        with zipfile.ZipFile(next((self.proj / "50-Outputs/_exports").glob("*.zip"))) as z:
+            self.assertNotIn("raws:", z.read("30-Wiki/公开.md").decode("utf-8"), "带 BOM 的笔记也要清洗 frontmatter")
+
+
+class TestClaudeHooksFallback(TempDirTest):
+    """deploy.py --claude-hooks 写进 settings.json 的兜底 hook，以及 doctor 对它的检查。"""
+
+    def setUp(self):
+        super().setUp()
+        self.home = self.tmp / "home"
+        self.canonical = self.home / ".agents/skills/loom"
+        self.settings = self.home / ".claude/settings.json"
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+
+    def commands(self, event):
+        hooks = json.loads(read(self.settings))["hooks"]
+        return [h["command"] for g in hooks[event] for h in g["hooks"]]
+
+    def doctor(self):
+        rc, out = run(PY, SCRIPTS / "loom.py", "doctor", cwd=self.proj, env=self.home_env(self.home))
+        self.assertEqual(rc, 0, out)
+        return out
+
+    def test_install_writes_both_session_start_commands(self):
+        deploy.install_claude_hooks(self.home, self.canonical)
+        start = self.commands("SessionStart")
+        self.assertEqual(len(start), 2, start)
+        self.assertTrue(any(c.endswith("kb session-start") for c in start) and any(c.endswith("kb rules") for c in start))
+        deploy.install_claude_hooks(self.home, self.canonical)
+        self.assertEqual(len(self.commands("SessionStart")), 2, "重复部署不重复写入")
+
+    def test_upgrade_adds_the_rules_command(self):
+        """0.6.0 及更早写入的只有 session-start 一条；重新部署时补上 rules。"""
+        run_sh = f'bash "{self.canonical.as_posix()}/scripts/run.sh"'
+        write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": [
+            {"type": "command", "command": f"{run_sh} kb session-start", "timeout": 20}]}]}}))
+        self.assertIn("kb rules", self.doctor(), "doctor 要指出缺少注入规则的那一条")
+        deploy.install_claude_hooks(self.home, self.canonical)
+        self.assertEqual(len(self.commands("SessionStart")), 2)
+
+    def test_doctor_warns_about_double_hooks(self):
+        deploy.install_claude_hooks(self.home, self.canonical)
+        self.assertIn("各执行一次", self.doctor(), "settings.json 和插件两份 hook 可能同时生效，要提示")
+
+
+class TestSmallFixes(TempDirTest):
+    def test_lint_points_to_loom_wrapup(self):
+        proj = self.tmp / "proj"
+        init_project(proj)
+        write(proj / "40-Sessions/raw/2026/09/2026-09-30_1000_aaaaaaaa.md",
+              '---\ntype: raw-session\ntitle: "讨论"\nstarted: 2026-09-30 10:00\nprompts: 3\n---\n')
+        rc, out = run(PY, SCRIPTS / "kb.py", "lint", cwd=proj)
+        self.assertNotIn("/wrapup", out.replace("/loom wrapup", ""), "0.1 的 /wrapup 命令早已不存在")
+
+    def test_sync_repos_speaks_the_project_language(self):
+        for lang, expected in (("en", "No repositories"), ("zh-CN", "还没有登记代码库")):
+            proj = self.tmp / lang
+            init_project(proj, lang=lang)
+            rc, out = run(PY, SCRIPTS / "sync_repos.py", cwd=proj)
+            self.assertEqual(rc, 0, out)
+            self.assertIn(expected, out)
+
+
 class TestExamples(TempDirTest):
     def test_examples_are_healthy_loom_projects(self):
         """examples/ 下的演示项目复制出去后就是完整的 Loom 项目：status 没有警告（Loom 区块是当前版本），lint 通过。"""

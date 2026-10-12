@@ -650,13 +650,27 @@ def cmd_doctor(args):
         conf = {}
     cmds = [h.get("command", "") for groups in conf.get("hooks", {}).values()
             for g in groups if isinstance(g, dict) for h in g.get("hooks", [])]
-    loom_hooks = any("loom" in c and "run.sh" in c for c in cmds)
+    loom_cmds = [c for c in cmds if "loom" in c and "run.sh" in c]
+    loom_hooks = bool(loom_cmds)
     (ok if loom_hooks else warn)(
         f"{settings} " + (L(lang, "中已有 loom 的 hook 配置", "already has loom's hook configuration") if loom_hooks
                           else L(lang, "中没有 loom 的 hook 配置（Claude Code 把 skill 目录加载为插件时不需要它；"
                                        "兜底可用 deploy.py --claude-hooks 写入）",
                                  "has no loom hook configuration (not needed when Claude Code loads the skill "
                                  "directory as a plugin; deploy.py --claude-hooks is the fallback)")))
+    if loom_hooks and not any(c.rstrip().endswith("kb rules") for c in loom_cmds):
+        warn(L(lang, f"{settings} 中 loom 的 hook 缺少注入通用规则的那一条（kb rules，0.6.1 起和项目上下文分开注入）："
+                     "在 Loom 源码仓库中运行 deploy.py --claude-hooks 补上",
+               f"loom's hooks in {settings} lack the one that injects the common rules (kb rules; since 0.6.1 it is "
+               "separate from the project context): run deploy.py --claude-hooks in the Loom source repository"))
+    if loom_hooks and plugin_ok:
+        warn(L(lang, f"{settings} 中有 loom 的 hook，skill 目录里也有插件文件。如果 Claude Code 已经把 skill 目录加载为插件"
+                     "（/plugin 或 claude plugin list 中能看到 loom@skills-dir），两份 hook 会各执行一次，"
+                     f"会话开始时的注入会重复：这时请删掉 {settings} 中命令含 loom 的 hook",
+               f"{settings} has loom's hooks and the skill directory also carries plugin files. If Claude Code already "
+               "loads the skill directory as a plugin (loom@skills-dir shows up in /plugin or claude plugin list), "
+               f"both copies run and the session-start injection is duplicated: in that case remove the hooks "
+               f"whose command contains loom from {settings}"))
     if settings.parent.is_dir():
         days = conf.get("cleanupPeriodDays")
         if days is None or days < 90:

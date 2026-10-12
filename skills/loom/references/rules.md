@@ -29,7 +29,7 @@
 
 ## 3. 上下文加载顺序
 
-1. 先读 `00-Hub/hot.md`。在 Claude Code 中，会话开始时 hook 已经注入了 hot.md 和提醒，可以跳过这一步。hot.md 由 wrapup 维护，可能过期：注入内容或 `loom.py status` 里出现"hot.md 可能已经过期"时，涉及当前状态的地方先核对它列出的变化（未归档的会话、代码库的新提交），不要直接采信 hot.md。
+1. 先读 `00-Hub/hot.md`。在 Claude Code 中，会话开始时 hook 会注入 hot.md 和提醒：上下文里确实有 `--- 00-Hub/hot.md ---` 这一段时，可以跳过这一步；只看到一个文件路径或一段开头的预览时，说明注入被截断了，照常读取。hot.md 由 wrapup 维护，可能过期：注入内容或 `loom.py status` 里出现"hot.md 可能已经过期"时，涉及当前状态的地方先核对它列出的变化（未归档的会话、代码库的新提交），不要直接采信 hot.md。
 2. 需要项目全貌时，读 `10-Brief/`、`00-Hub/roadmap.md` 和 `00-Hub/timeline.md`。
 3. 查历史讨论时，先看 `00-Hub/index.md`（会话纪要和资料卡带一句话摘要，先凭摘要判断要打开哪几篇），再 grep `40-Sessions/notes/` 和 `40-Sessions/decisions/` 的 frontmatter（`title`、`tags`）。**只有需要原话时，才去翻 `40-Sessions/raw/`。**
 4. 查领域知识时，先读 `30-Wiki/` 中的相关页面，再追溯到它引用的资料卡或原始资料。

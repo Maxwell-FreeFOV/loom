@@ -1,10 +1,10 @@
 ---
 name: loom
-description: Loom 项目知识库：在一个项目文件夹里和 AI 协同推进想法、研究或工程，把讨论、资料、决策、产出物和对话历史沉淀为 Obsidian 知识库，让 AI 始终有完整上下文。用于：用 Loom 初始化新项目（"用 Loom 初始化这个项目"、"loom init"）；在 Loom 项目（根目录或上级目录有 .kb.json）中归档会话（总结、收尾、归档、wrapup）、导入资料、网页或别人的知识库快照（ingest）、把可公开的内容发布成快照分享给合作者（publish）、知识库体检（lint）、启用研究/工程/产出物模块、结构迁移、项目暂停或结束（close）。除初始化外，只在 Loom 项目中使用。
+description: Loom 项目知识库：和 AI 一起做长周期项目（想法、研究或工程）时，把资料、讨论、决策和产出物整理成本地 Markdown 知识库，留下知道了什么、为什么这样决定、下一步从哪里继续。用于：用 Loom 初始化新项目（"用 Loom 初始化这个项目"、"loom init"）；在 Loom 项目（根目录或上级目录有 .kb.json）中归档会话（总结、收尾、归档、wrapup）、导入资料、网页或别人的知识库快照（ingest）、把可公开的内容发布成快照分享给合作者（publish）、知识库体检（lint）、启用研究/工程/产出物模块、结构迁移、项目暂停或结束（close）。除初始化外，只在 Loom 项目中使用。English - Loom keeps the record of a long project done with an AI assistant (what you know, why you decided, where to continue) as local Markdown. Use it to initialize a project with Loom ("initialize this project with Loom", "loom init"), and inside a Loom project (a .kb.json in the folder or a parent folder) to wrap up or archive a discussion (wrapup), ingest sources, web pages or a collaborator's snapshot (ingest), publish a shareable snapshot (publish), lint the knowledge base, enable modules, migrate, or close the project. Apart from init, use it only inside a Loom project.
 license: MIT
 compatibility: 需要本机 Python 3.12+ 和 git。对话自动归档目前只支持 Claude Code 的会话记录。
 metadata:
-  version: "0.6.0"
+  version: "0.6.1"
 ---
 
 # Loom
@@ -22,7 +22,7 @@ metadata:
 $PY "$LOOM/scripts/loom.py" status
 ```
 
-- 输出"当前目录不在 Loom 项目中"：只有当用户要初始化新项目时才继续，按 `references/init.md` 执行；否则就不要使用本 skill。
+- 报错 `Not in a Loom project`（当前目录不在 Loom 项目中）：只有当用户要初始化新项目时才继续，按 `references/init.md` 执行；否则就不要使用本 skill。
 - 输出"需要迁移"：先按 `references/migrate.md` 处理，再做其他事。
 - 其他情况：记下知识库根目录，以及输出中的提醒（未归档的会话、到期的决策），然后进入第二步。
 

@@ -172,7 +172,7 @@ mkdir my-project && cd my-project
 2. AI 的技能列表里能看到 `loom`；初始化之后，项目里出现 `.kb.json`、`AGENTS.md`、`00-Hub/hot.md`、`10-Brief/project-brief.md`。
 3. Claude Code 中：在 Loom 项目里开新会话，开头应出现"Loom 项目上下文"；会话结束后，`40-Sessions/raw/` 下出现导出的对话。`doctor` 只检查文件和配置，不能证明 hook 已生效，以这一条实测为准。
 
-如果某个 Claude Code 版本没有把 skill 目录加载为插件，可以用 `py tools/deploy.py --claude-hooks` 兜底，把同样的 hook 写进 `~/.claude/settings.json`。
+如果某个 Claude Code 版本没有把 skill 目录加载为插件，可以用 `py tools/deploy.py --claude-hooks` 兜底，把同样的 hook 写进 `~/.claude/settings.json`。两种方式只用一种：插件也加载了的话（`/plugin` 里能看到 `loom@skills-dir`），每个 hook 会执行两次，会话开始时的上下文会注入两遍。`doctor` 发现 `settings.json` 里有 hook 时会提醒；确认插件已加载后把它们删掉。
 
 不通过 AI、直接建项目也可以：`py "$HOME/.agents/skills/loom/scripts/loom.py" init --name my-project --language zh-CN`（macOS/Linux 把 `py` 换成 `python3`；英文项目用 `--language en`，省略时默认英文）。
 

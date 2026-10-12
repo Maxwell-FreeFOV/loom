@@ -30,7 +30,8 @@ MANIFEST = "loom-snapshot.json"
 README = "snapshot-readme.md"
 README_NAMES = {README, "快照说明.md"}  # 新旧两种说明文件名，读取时都接受
 FORMAT = 1
-EXPORTS = "50-Outputs/_exports"
+OUTPUTS = "50-Outputs"
+EXPORTS = OUTPUTS + "/_exports"
 DEFAULTS = {
     "include": ["10-Brief/", "30-Wiki/", "20-Sources/cards/", "50-Outputs/", "00-Hub/roadmap.md"],
     "exclude": [],
@@ -101,9 +102,16 @@ def link_reason(root, p, rel, rules, lang):
     return None
 
 
+def output_unit(rel):
+    """文件所属的产出物：50-Outputs/ 下的第一级子目录（含它的下级目录）。不在某个子目录里时返回 None。"""
+    parts = rel.split("/")
+    return "/".join(parts[:2]) + "/" if rel.startswith(OUTPUTS + "/") and len(parts) > 2 else None
+
+
 def select(root, rules, lang):
     """返回（要发布的文件 [(相对路径, 路径)]，在 include 范围内但被排除的 [(相对路径, 原因)]）。"""
     files, excluded = [], []
+    forced, with_doc, published = set(), set(), set()  # 标了 publish: true 的文件；有产出文档的目录；其中有文档要发布的
     for p in sorted(kbmod.walk(kbmod.PRUNE)):
         rel = p.relative_to(root).as_posix()
         if p.name == ".gitkeep" or matches(rel, HARD_EXCLUDE):
@@ -117,12 +125,17 @@ def select(root, rules, lang):
         meta = {}
         if p.suffix.lower() == ".md":
             try:
-                meta = kbmod.frontmatter(p.read_text(encoding="utf-8", errors="ignore"))[0]
+                meta = kbmod.frontmatter(p.read_text(encoding="utf-8-sig", errors="ignore"))[0]
             except OSError as e:
                 raise SnapshotError(L(lang, f"读取 {rel} 失败，已中止：{e}", f"Failed to read {rel}; aborted: {e}")) from e
         flag = meta.get("publish", "").lower()
+        unit = output_unit(rel) if meta.get("type") == "output" else None
+        if unit:
+            with_doc.add(unit)
+        before = len(files)
         if flag == "true":
             files.append((rel, p))
+            forced.add(rel)
         elif not included:
             continue
         elif flag == "false":
@@ -134,6 +147,16 @@ def select(root, rules, lang):
                                     f"output status is {meta.get('status') or 'empty'}, not released")))
         else:
             files.append((rel, p))
+        if unit and len(files) > before:
+            published.add(unit)
+    # 产出物以目录为单位：目录里有产出文档、却没有一篇要发布时，它的附件（图片、数据、附录）也不发布。
+    # 否则"草稿不发布"只拦住了文档本身。单个文件自己标了 publish: true 的，照旧放行。
+    held = with_doc - published
+    if held:
+        reason = L(lang, "所属产出物未发布", "the deliverable it belongs to is not published")
+        excluded += [(rel, reason) for rel, _ in files if output_unit(rel) in held and rel not in forced]
+        files = [(rel, p) for rel, p in files if output_unit(rel) not in held or rel in forced]
+        excluded.sort(key=lambda x: x[0])
     return files, excluded
 
 
@@ -230,7 +253,7 @@ def render(root, rules, lang):
         except OSError as e:
             raise SnapshotError(L(lang, f"读取 {rel} 失败，已中止：{e}", f"Failed to read {rel}; aborted: {e}")) from e
         if p.suffix.lower() == ".md":
-            text, defused[rel] = clean(data.decode("utf-8", errors="replace"), rules, names)
+            text, defused[rel] = clean(data.decode("utf-8-sig", errors="replace"), rules, names)
             data = text.encode("utf-8")
         content[rel] = data
     return content, defused, excluded
@@ -376,8 +399,10 @@ def cmd_plan(args):
                   f"## Excluded although in scope ({len(excluded)})"), ""]
     out += [f"- {rel}{L(lang, '：', ': ')}{reason}" for rel, reason in excluded] or [L(lang, "（没有）", "(none)")]
 
-    watched = [(rel, watch(data.decode("utf-8", errors="replace"), lang)) for rel, data in sorted(content.items())
-               if Path(rel).suffix.lower() in TEXT_SUFFIXES]
+    # 脚本只看得懂 .md 和 .txt。其余文件（图片、PDF、表格）的内容没有检查过，逐个列出来交给人看。
+    unchecked = [L(lang, "不是 .md 或 .txt，脚本没有检查它的内容", "not .md or .txt; the script did not check its content")]
+    watched = [(rel, watch(data.decode("utf-8", errors="replace"), lang)
+                if Path(rel).suffix.lower() in TEXT_SUFFIXES else unchecked) for rel, data in sorted(content.items())]
     watched = [(rel, hits) for rel, hits in watched if hits]
     out += ["", L(lang, f"## 需要留意（{len(watched)}）", f"## Needs attention ({len(watched)})"), ""]
     out += [f"- {rel}{L(lang, '：', ': ')}{L(lang, '；', '; ').join(hits)}" for rel, hits in watched] \

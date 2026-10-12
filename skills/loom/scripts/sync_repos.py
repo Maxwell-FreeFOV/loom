@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 
-from kbroot import find_root, utf8_stdout
+from kbroot import ConfigError, find_root, kb_language, L, load_kb, utf8_stdout
 
 
 def load_repos(repos_file):
@@ -47,38 +47,47 @@ def main():
     root_arg = args[args.index("--root") + 1] if "--root" in args[:-1] else None
     root = find_root(root_arg)
     if root is None:
-        print("当前目录不在 Loom 项目中（向上找不到 .kb.json）。", file=sys.stderr)
+        print("Not in a Loom project (no .kb.json found in this directory or its parents).", file=sys.stderr)
         sys.exit(1)
+    try:
+        lang = kb_language(load_kb(root))
+    except ConfigError:  # 只读操作：配置损坏时按旧项目的语言继续
+        lang = "zh-CN"
     repos = load_repos(root / "repos.yaml")
     if not repos:
-        print("repos.yaml 中还没有登记代码库。")
+        print(L(lang, "repos.yaml 中还没有登记代码库。", "No repositories are registered in repos.yaml yet."))
         return
     rows = []
     for r in repos:
         path = (root / r["path"]).resolve()
-        print(f"· {r['name']}（{r['path']}）")
+        print(L(lang, f"· {r['name']}（{r['path']}）", f"· {r['name']} ({r['path']})"))
         if not path.exists():
             if not r.get("remote"):
-                print("  ⚠️ 本地不存在，且没有 remote，无法克隆")
-                rows.append(f"| {r['name']} | {r['path']} | — | — | 缺失 | |")
+                print(L(lang, "  ⚠️ 本地不存在，且没有 remote，无法克隆",
+                        "  ⚠️ Missing locally and no remote is given; cannot clone"))
+                rows.append(f"| {r['name']} | {r['path']} | — | — | {L(lang, '缺失', 'missing')} | |")
                 continue
-            clone = ["clone", r["remote"], str(path)] + (["-b", r["branch"]] if r.get("branch") else [])
+            # "--" 之后的都是位置参数：repos.yaml 里以 - 开头的 remote 不会被 git 当成选项
+            clone = ["clone", *(["-b", r["branch"]] if r.get("branch") else []), "--", r["remote"], str(path)]
             code, _, err = git(root, *clone)
-            print("  已克隆" if code == 0 else f"  ❌ 克隆失败：{err}")
+            print(L(lang, "  已克隆", "  Cloned") if code == 0
+                  else L(lang, f"  ❌ 克隆失败：{err}", f"  ❌ Clone failed: {err}"))
             if code != 0:
                 continue
         elif "--pull" in args:
             code, out, err = git(path, "pull", "--ff-only")
-            print(f"  pull：{out.splitlines()[-1] if code == 0 and out else err}")
+            print(f"  pull{L(lang, '：', ': ')}{out.splitlines()[-1] if code == 0 and out else err}")
         if not (path / ".git").exists():
-            print("  ⚠️ 不是 git 仓库")
+            print(L(lang, "  ⚠️ 不是 git 仓库", "  ⚠️ Not a git repository"))
         _, branch, _ = git(path, "rev-parse", "--abbrev-ref", "HEAD")
         _, head, _ = git(path, "log", "-1", "--format=%h %cd %s", "--date=short")
         _, dirty, _ = git(path, "status", "--porcelain")
         _, remote, _ = git(path, "remote", "get-url", "origin")
-        state = f"{len(dirty.splitlines())} 处未提交改动" if dirty else "干净"
+        n = len(dirty.splitlines())
+        state = L(lang, f"{n} 处未提交改动", f"{n} uncommitted change(s)") if dirty else L(lang, "干净", "clean")
         rows.append(f"| {r['name']} | {r['path']} | {branch} | {head} | {state} | {remote or r.get('remote', '')} |")
-    print("\n| 代码库 | 路径 | 分支 | 最新提交 | 工作区 | 远端 |\n|---|---|---|---|---|---|")
+    print(L(lang, "\n| 代码库 | 路径 | 分支 | 最新提交 | 工作区 | 远端 |\n|---|---|---|---|---|---|",
+            "\n| Repository | Path | Branch | Latest commit | Worktree | Remote |\n|---|---|---|---|---|---|"))
     print("\n".join(rows))
 
 

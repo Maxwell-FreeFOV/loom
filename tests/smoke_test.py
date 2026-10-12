@@ -152,7 +152,8 @@ def test_package():
           and f'version: "{version}"' in read(SKILL / "SKILL.md"), "VERSION、plugin.json、SKILL.md 的版本号一致")
     hooks = json.loads(read(SKILL / "hooks/hooks.json"))["hooks"]
     check(set(hooks) == {"SessionStart", "SessionEnd"}
-          and all("${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" in g["hooks"][0]["command"] for v in hooks.values() for g in v),
+          and all("${CLAUDE_PLUGIN_ROOT}/scripts/run.sh" in h["command"]
+                  for v in hooks.values() for g in v for h in g["hooks"]),
           "hooks.json 只有 SessionStart、SessionEnd，都通过 run.sh 调用（不用 Stop）")
     refs = re.findall(r"`references/(\w+)\.md`", read(SKILL / "SKILL.md"))
     check(refs and all((SKILL / "references" / f"{r}.md").is_file() for r in refs), "SKILL.md 引用的说明文件都存在")
@@ -370,7 +371,11 @@ def main():
     check(r.returncode == 0 and not any(nokb.iterdir()), "不在 Loom 项目中时 run.sh 立即退出，不产生任何文件")
     r = hook("kb session-start", p1)
     ss = r.stdout.decode("utf-8", "replace")
-    check("测试想法" in ss and "Loom 通用规则" in ss and "00-Hub/hot.md" in ss, "SessionStart 注入项目状态、通用规则和 hot.md", ss[:300])
+    check("测试想法" in ss and "--- 00-Hub/hot.md ---" in ss and "--- Loom 通用规则" not in ss,
+          "SessionStart 的第一条命令注入项目状态和 hot.md", ss[:300])
+    rules = hook("kb rules", p1).stdout.decode("utf-8", "replace")
+    check("--- Loom 通用规则" in rules and "## 12. Loom 本身" in rules, "SessionStart 的第二条命令注入通用规则", rules[:300])
+    check(hook("kb rules", nokb).stdout == b"", "不在 Loom 项目中时，注入规则的命令没有任何输出")
     demo = p1 / "repos" / "demo"
     demo.mkdir(parents=True)
     fake = tmp / "t1.jsonl"

@@ -30,7 +30,8 @@ STRIP_TAGS = re.compile(
 )
 CMD_NAME = re.compile(r"<command-name>(.*?)</command-name>", re.S)
 CMD_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
-HEADING = re.compile(r"^(#{1,4} )", re.M)
+HEADING = re.compile(r"^(#{1,4} )")
+FENCE = re.compile(r"\s*(`{3,}|~{3,})(.*)$")
 TOOL_KEYS = ("description", "command", "file_path", "pattern", "url", "query", "prompt", "skill")
 
 
@@ -108,6 +109,24 @@ def parse(path):
     return session_id, title, cwd, events
 
 
+def demote_headings(text):
+    """正文标题降两级，避免与角色标题（##）同级而打乱大纲。代码围栏里的行原样保留：
+    那里以 # 开头的是注释，改了就不再是原话。围栏按 CommonMark 的规则配对：结束标记和开始标记用同一种字符，
+    长度不短于它，后面没有别的内容。"""
+    out, fence = [], None
+    for line in text.split("\n"):
+        m = FENCE.match(line)
+        if fence is None:
+            if m:
+                fence = m.group(1)
+            else:
+                line = HEADING.sub(r"##\1", line)
+        elif m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+            fence = None
+        out.append(line)
+    return "\n".join(out)
+
+
 def launched_in(cwd):
     """会话启动目录相对知识库根目录的路径；在根目录启动时返回 None。"""
     if not cwd:
@@ -142,8 +161,7 @@ def render(session_id, title, cwd, events):
             who = "👤 我" if role == "user" else "🤖 Claude"
             out.append(f"\n## {who} · {ts:%H:%M}\n")
             last_role = role
-        # 正文标题降两级，避免与角色标题（##）同级而打乱大纲
-        out.append(HEADING.sub(r"##\1", text) + "\n")
+        out.append(demote_headings(text) + "\n")
     return "\n".join(out)
 
 

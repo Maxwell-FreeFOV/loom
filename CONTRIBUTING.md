@@ -12,7 +12,7 @@ skills/loom/                   要安装的 skill（部署时只导出这个目�
   assets/templates/project/<模块>/        init 和 module add 时生成的项目文件：module.json + shared/（语言中立）+ zh-CN/ 与 en/
   assets/templates/loom-block/<语言>.md   AGENTS.md 中 Loom 区块的内容
   .claude-plugin/plugin.json   Claude Code 增强层：让 skill 目录同时作为插件 loom@skills-dir 加载
-  hooks/hooks.json             SessionStart、SessionEnd，都通过 run.sh 调用（不用 Stop，见 export_session.py 文件头）
+  hooks/hooks.json             SessionStart（两条命令：项目上下文、通用规则）、SessionEnd，都通过 run.sh 调用（不用 Stop，见 export_session.py 文件头）
 tools/deploy.py                部署到本机
 tests/smoke_test.py            端到端测试
 tests/test_regressions.py      回归测试（标准库 unittest）
@@ -26,6 +26,7 @@ examples/reading-notes/        虚构演示项目（en 与 zh-CN 两版）
 - **路径写法**：在 skill 正文中，脚本路径写成 `$LOOM/scripts/...`，并在 SKILL.md 中说明 `$LOOM` 的含义（在 Claude Code 中是 `${CLAUDE_SKILL_DIR}`）。不要在 references 中直接使用 Claude Code 专有的变量。
 - **脚本依赖**：只依赖 Python 3 标准库和 git。脚本从当前目录向上查找 `.kb.json` 来定位知识库，也接受 `--root` 参数。
 - **hook 性能**：hook 在所有 Claude Code 会话中都会触发，所以 `run.sh` 必须先判断当前目录是否属于 Loom 项目，不是就立即退出，保证非 Loom 项目几乎没有额外开销。
+- **hook 输出的上限**：Claude Code 把每个 hook 的输出按 10000 字符封顶，超出时模型只能看到前 2000 字符的预览，也不会被要求去读完整的文件。所以会话开始时的注入分成两条命令（`kb session-start` 和 `kb rules`），各自计算上限；`hooks/hooks.json` 和 `tools/deploy.py` 的 `install_claude_hooks` 里的命令要保持一致。`rules.md` 变长到接近上限时，回归测试 `TestInjectionCap` 会先失败，这时要拆规则，不要放宽测试。
 - **模板文件名后缀**：`assets/templates/project/` 下的模板，如果放在源码仓库里就会直接生效（如 `CLAUDE.md`、`AGENTS.md`、`.gitignore`），文件名要加 `.tmpl` 后缀。
 - **占位符**：模板中可以使用 `{{PROJECT_NAME}}`、`{{SUMMARY}}`、`{{DATE}}`、`{{LOOM_BLOCK}}`。笔记模板中的 `{{title}}`、`{{date}}` 属于 Obsidian 模板插件，Loom 不会替换。
 - **结构版本**：项目结构发生变化时（目录改名、字段改名等），做以下三件事：

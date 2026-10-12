@@ -22,5 +22,5 @@ for py in py python3 python; do
     fi
   fi
 done
-echo "Loom：找不到 Python 3.12 或更高版本，跳过 $1" >&2
+echo "Loom: Python 3.12+ not found, skipping $1 / 找不到 Python 3.12 或更高版本，跳过 $1" >&2
 exit 0

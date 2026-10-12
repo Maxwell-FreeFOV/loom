@@ -119,10 +119,12 @@ def install_claude_hooks(home, canonical):
     settings = home / ".claude" / "settings.json"
     data = json.loads(settings.read_text(encoding="utf-8")) if settings.is_file() else {}
     run = f'bash "{canonical.as_posix()}/scripts/run.sh"'
-    wanted = {
-        "SessionStart": {"type": "command", "command": f"{run} kb session-start", "timeout": 20},
-        "SessionEnd": {"type": "command", "command": f"{run} export_session", "timeout": 30},
-    }
+    # SessionStart 是两条命令：项目上下文和通用规则分开注入，各自不超过 Claude Code 对 hook 输出的字符上限。
+    wanted = [
+        ("SessionStart", {"type": "command", "command": f"{run} kb session-start", "timeout": 20}),
+        ("SessionStart", {"type": "command", "command": f"{run} kb rules", "timeout": 20}),
+        ("SessionEnd", {"type": "command", "command": f"{run} export_session", "timeout": 30}),
+    ]
     hooks = data.setdefault("hooks", {})
     added = []
     # 0.1.1 起不再用 Stop hook 导出（会让刚提交的 raw 文件马上又变脏），清理旧版写入的项。
@@ -139,11 +141,11 @@ def install_claude_hooks(home, canonical):
             else:
                 del hooks["Stop"]
             added.append("移除 Stop")
-    for event, hook in wanted.items():
+    for event, hook in wanted:
         groups = hooks.setdefault(event, [])
         if hook["command"] not in [h.get("command") for g in groups for h in g.get("hooks", [])]:
             groups.append({"hooks": [hook]})
-            added.append(event)
+            added.append(f"{event}（{hook['command'].removeprefix(run).strip()}）")
     if added:
         if settings.is_file():
             shutil.copy2(settings, settings.with_name("settings.json.bak-loom"))
