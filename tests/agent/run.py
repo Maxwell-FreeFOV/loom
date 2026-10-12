@@ -18,7 +18,9 @@
 """
 import argparse
 import json
+import os
 import shutil
+import stat
 import sys
 import tempfile
 import time
@@ -172,7 +174,13 @@ def main():
         if args.keep:
             print(f"运行环境保留在 {root}（凭据文件已删除）")
         else:
-            shutil.rmtree(root, ignore_errors=True)
+            def writable(func, path, _exc):  # Windows 上 git 的对象文件是只读的，改成可写再删一次
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                    func(path)
+                except OSError:
+                    pass
+            shutil.rmtree(root, onexc=writable)
     if any(c["status"] == "fail" for r in results for c in r["checks"]):
         sys.exit(1)
 
