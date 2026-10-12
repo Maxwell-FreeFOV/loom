@@ -2,6 +2,11 @@
 
 版本号遵循语义化版本。项目结构的变化用结构版本（schema）单独标记，迁移说明见 `skills/loom/references/migrate.md`。
 
+## 0.6.2 · 2026-10-13
+
+- **体检不再要求用户自己的文件带 frontmatter**：`kb.py lint` 的"缺少 frontmatter 或必填字段"现在只检查 Loom 自己写笔记的位置（`00-Hub/`、`10-Brief/`、`20-Sources/cards/`、`30-Wiki/`、`40-Sessions/notes/`、`40-Sessions/decisions/`、`50-Outputs/`）。此前它连用户留在原地的资料、`20-Sources/inbox/` 里还没导入的文件和项目自建目录里的文件一起检查，所以按 init 的说明"已有资料不移动"初始化出来的项目过不了体检，还会把 AI 引去改用户的原件。项目自建目录里的笔记因此不再被检查 frontmatter。
+- **新增行为测试**（`tests/agent/`）：在 DeepSeek Harness 里对着虚构的夹具项目跑场景，检查 AI 实际怎么做，并从会话日志里读出每一步有什么进了上下文。需要本机装有 dsh 和模型凭据，不进 CI。上面这个问题就是它的"从零初始化"场景发现的。用法见 `tests/agent/README.md`。
+
 ## 0.6.1 · 2026-10-12
 
 一次完整评审后的缺陷修复。不改项目结构，不需要迁移。

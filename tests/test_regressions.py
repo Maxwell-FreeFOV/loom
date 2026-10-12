@@ -1106,6 +1106,34 @@ class TestSmallFixes(TempDirTest):
             self.assertIn(expected, out)
 
 
+class TestLintLeavesUserFilesAlone(TempDirTest):
+    """init 的说明要求把用户已有的资料留在原地。这些文件不是 Loom 的笔记，lint 不能因为它们没有 frontmatter 报错：
+    否则按流程初始化完的项目过不了体检，AI 还会被引去改用户的原件。（行为测试 s8 发现的）"""
+
+    def setUp(self):
+        super().setUp()
+        self.proj = self.tmp / "proj"
+        init_project(self.proj)
+
+    def lint(self):
+        rc, out = run(PY, SCRIPTS / "kb.py", "lint", cwd=self.proj)
+        self.assertEqual(rc, 0, out)
+        return out
+
+    def test_files_outside_loom_directories_need_no_frontmatter(self):
+        write(self.proj / "需求笔记.md", "# 需求笔记\n\n原来就在文件夹里的资料。\n")
+        write(self.proj / "资料/方案备选.md", "# 方案备选\n")
+        write(self.proj / "20-Sources/inbox/待处理.md", "# 还没导入的资料\n")
+        self.assertIn("✅", self.lint())
+
+    def test_loom_notes_still_need_frontmatter(self):
+        write(self.proj / "30-Wiki/概念.md", "# 概念\n\n没有 frontmatter 的 wiki 页。\n")
+        write(self.proj / "40-Sessions/notes/2026-09-30_讨论.md", "# 讨论\n")
+        out = self.lint()
+        self.assertIn("30-Wiki/概念.md：缺少 type、title", out)
+        self.assertIn("40-Sessions/notes/2026-09-30_讨论.md：缺少 type、title", out)
+
+
 class TestExamples(TempDirTest):
     def test_examples_are_healthy_loom_projects(self):
         """examples/ 下的演示项目复制出去后就是完整的 Loom 项目：status 没有警告（Loom 区块是当前版本），lint 通过。"""

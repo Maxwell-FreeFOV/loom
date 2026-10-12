@@ -29,6 +29,9 @@ PRUNE = {".git", ".loom", ".obsidian", ".trash", "repos", "node_modules", "__pyc
 # 除上面之外，收集笔记时还要跳过的目录
 NOT_NOTES = PRUNE | {".claude", "scripts", "90-Templates"}
 ROOT_FILES = {"CLAUDE.md", "LOOM-RULES.md", "AGENTS.md", "README.md"}
+# Loom 自己写笔记的位置：只有这里的笔记必须带 frontmatter
+MANAGED = ("00-Hub/", "10-Brief/", "20-Sources/cards/", "20-Sources/sources-index.md", "30-Wiki/",
+           "40-Sessions/notes/", "40-Sessions/decisions/", "50-Outputs/")
 
 FM = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.S)
 LINK = re.compile(r"!?\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\\?\|[^\]]*)?\]\]")
@@ -300,6 +303,8 @@ def cmd_lint():
                 inbound.setdefault(key.split("/")[-1], set()).add(n.rel)
 
     for n in checked:
+        if not n.rel.startswith(MANAGED):
+            continue  # 用户留在原地的资料、待处理的 inbox、项目自建的目录：不是 Loom 写的笔记，不要求 frontmatter
         declared = frontmatter(n.text)[0]  # n.meta 里的 title 可能是用文件名补上的
         missing = [k for k in ("type", "title") if not declared.get(k)]
         if missing:

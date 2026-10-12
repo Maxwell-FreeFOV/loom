@@ -16,6 +16,7 @@ skills/loom/                   要安装的 skill（部署时只导出这个目�
 tools/deploy.py                部署到本机
 tests/smoke_test.py            端到端测试
 tests/test_regressions.py      回归测试（标准库 unittest）
+tests/agent/                   行为测试：在 DeepSeek Harness 里跑场景，看 AI 实际怎么做、上下文里进了什么（需要 dsh 和模型凭据，不进 CI，见该目录的 README）
 docs/                          面向用户的补充文档（卸载与回滚等）
 examples/reading-notes/        虚构演示项目（en 与 zh-CN 两版）
 ```
@@ -44,7 +45,10 @@ examples/reading-notes/        虚构演示项目（en 与 zh-CN 两版）
 ```bash
 py tests/smoke_test.py                # 端到端测试
 py -m unittest discover -s tests      # 回归测试
+py tests/agent/run.py --scenario s1   # 行为测试（可选，要花模型调用的钱）
 ```
+
+前两个测脚本，每次改动都要跑。改了会影响 AI 行为的东西（`SKILL.md`、`references/`、注入的内容、`AGENTS.md` 模板）时，提交之后再跑相关的行为测试场景，把结果记进开发项目的知识库。它测的是已提交的内容，模型的输出不确定，一个场景至少跑三次。
 
 Windows 上请用 `py`（Python 3.12+）；`python`/`python3` 可能指向更旧的版本。hook 测试需要可工作的 Bash（Windows 上是 Git Bash）；找不到时用 `LOOM_TEST_BASH` 环境变量指定路径。
 
