@@ -2,6 +2,10 @@
 
 版本号遵循语义化版本。项目结构的变化用结构版本（schema）单独标记，迁移说明见 `skills/loom/references/migrate.md`。
 
+## 0.6.3 · 2026-10-13
+
+- **skill 的 `description` 改回只有中文**：0.6.1 加在末尾的英文说明没有证据表明有用（描述里本来就带着 `wrapup`、`ingest`、`publish`、`lint` 这些操作名；有的工具会把描述截到 500 个字符，英文那段大部分看不到，英文提示照样能触发），却让描述从约 300 个字符涨到约 900 个，而有 skill 目录的工具会把它放进每个项目的每次会话。
+
 ## 0.6.2 · 2026-10-13
 
 - **体检不再要求用户自己的文件带 frontmatter**：`kb.py lint` 的"缺少 frontmatter 或必填字段"现在只检查 Loom 自己写笔记的位置（`00-Hub/`、`10-Brief/`、`20-Sources/cards/`、`30-Wiki/`、`40-Sessions/notes/`、`40-Sessions/decisions/`、`50-Outputs/`）。此前它连用户留在原地的资料、`20-Sources/inbox/` 里还没导入的文件和项目自建目录里的文件一起检查，所以按 init 的说明"已有资料不移动"初始化出来的项目过不了体检，还会把 AI 引去改用户的原件。项目自建目录里的笔记因此不再被检查 frontmatter。
