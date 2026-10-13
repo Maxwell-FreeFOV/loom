@@ -2,6 +2,14 @@
 
 版本号遵循语义化版本。项目结构的变化用结构版本（schema）单独标记，迁移说明见 `skills/loom/references/migrate.md`。
 
+## 工具与文档 · 2026-10-13
+
+skill 本身没有变化，版本号仍是 0.6.3；改动在部署工具和文档里。
+
+- **`deploy.py --latest`**：升级用。从远端找出版本号最大的发布 tag（`v<主>.<次>.<修订>`）并部署；不运行测试，不要求工作区干净，不改动本地的工作区、分支和 tag；本机已装的版本不比它旧时不部署。远端改写过历史、`git pull` 已经无法快进的旧克隆，也能用它升级。
+- **README 新增"升级"一节**，`docs/uninstall.md` 补上对应的卸载和回滚说明。
+- **README 写回 skills CLI 的安装方式**：`npx skills add Maxwell-FreeFOV/loom -g -y`，升级用 `npx skills update loom -g -y`。用 skills CLI 1.7.2 在 Windows 上实测过安装、更新和卸载。它和 `deploy.py` 不要混用：在 `deploy.py` 装过的机器上再用 skills CLI 只装给 Claude Code，实测留下了两份版本不同的 Loom。
+
 ## 0.6.3 · 2026-10-13
 
 - **skill 的 `description` 改回只有中文**：0.6.1 加在末尾的英文说明没有证据表明有用（描述里本来就带着 `wrapup`、`ingest`、`publish`、`lint` 这些操作名；有的工具会把描述截到 500 个字符，英文那段大部分看不到，英文提示照样能触发），却让描述从约 300 个字符涨到约 900 个，而有 skill 目录的工具会把它放进每个项目的每次会话。

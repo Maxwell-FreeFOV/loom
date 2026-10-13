@@ -59,3 +59,6 @@ Windows 上请用 `py`（Python 3.12+）；`python`/`python3` 可能指向更旧
 3. 提交，然后打 tag：`git tag v<版本>`。
 4. 运行 `py tools/deploy.py`。部署前它会再跑一遍测试。新版本从下一次会话开始生效。
 5. 需要回滚时，运行 `py tools/deploy.py --ref v<旧版本>`。
+6. 推送提交和 tag：`git push origin main v<版本>`。用户靠它们升级：
+   - `deploy.py --latest` 只认远端上版本号最大的 `v<主>.<次>.<修订>`，没有推送 tag 的版本对这些用户等于不存在；
+   - 用 skills CLI 安装的用户跟的是 main 上 `skills/loom/` 的内容，动了这个目录的提交一推送就会到他们手里。所以这类提交只在准备发布时才推到 main。

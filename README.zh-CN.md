@@ -139,7 +139,15 @@ python3 tools/deploy.py
 
 skill 本体会放到 `~/.agents/skills/loom`，然后链接进已安装工具的 skills 目录（默认 `~/.claude/skills/loom` 和 `~/.codex/skills/loom`；用 `--agents claude,codex,gemini` 指定）。部署前会先跑一遍仓库自带的端到端测试，其中的 hook 测试需要 Bash；没有 Bash 或想跳过时加 `--skip-tests`。
 
-也可以把 `skills/loom/` 手工复制到某个工具的 skills 目录。
+不想克隆仓库的话，也可以用 [skills CLI](https://github.com/vercel-labs/skills) 安装（它目前要求 Node.js 22.20 或更高版本）：
+
+```bash
+npx skills add Maxwell-FreeFOV/loom -g -y
+```
+
+它同样把 skill 放在 `~/.agents/skills/loom`，再链接进它检测到的工具。用 `-a claude-code` 只装给 Claude Code 时是例外：skill 会被直接复制到 `~/.claude/skills/loom`，下文命令里的路径要相应替换。两种安装方式只用一种，原因见[升级](#升级)。
+
+还可以把 `skills/loom/` 手工复制到某个工具的 skills 目录。
 
 **2. 创建项目**
 
@@ -166,6 +174,34 @@ mkdir my-project && cd my-project
 hook 在 Claude Code 2.1.283 和 2.1.294 上实测过。命令行里一个较旧的安装（2.1.81）没有加载 hook，也没有任何提示，所以开头没有出现上下文时，先升级 Claude Code。如果你的版本仍然没有把 skill 目录加载为插件，可以用 `py tools/deploy.py --claude-hooks` 兜底，把同样的 hook 写进 `~/.claude/settings.json`。两种方式只用一种：插件也加载了的话（`/plugin` 里能看到 `loom@skills-dir`），每个 hook 会执行两次，会话开始时的上下文会注入两遍。`doctor` 发现 `settings.json` 里有 hook 时会提醒；确认插件已加载后把它们删掉。
 
 不通过 AI、直接建项目也可以：`py "$HOME/.agents/skills/loom/scripts/loom.py" init --name my-project --language zh-CN`（macOS/Linux 把 `py` 换成 `python3`；英文项目用 `--language en`，省略时默认英文）。
+
+## 升级
+
+升级的是本机的 Loom，各个项目里的文件不动；新版本从下一次会话开始生效。每个版本改了什么、升级后有没有要手动做的事，见 [CHANGELOG.md](CHANGELOG.md)。
+
+**用克隆的仓库安装的**，在当初克隆的目录里运行：
+
+```bash
+py tools/deploy.py --latest        # macOS / Linux 用 python3
+```
+
+它从 GitHub 找出版本号最大的发布版并部署：不运行测试，不改动你克隆下来的文件，本机已经是最新时什么都不做。
+
+- 忘了克隆在哪里：`~/.agents/skills/loom/.loom-deploy.json` 的 `source` 记着这个目录。
+- 提示不认识 `--latest`：克隆下来的部署脚本是旧的，先运行 `git pull`。`git pull` 失败（比如提示分支已经分叉、无法快进）时，删掉这个目录重新克隆一份。
+- 用过 `--claude-hooks` 的，升级时带上这个参数。
+
+**用 skills CLI 安装的**：
+
+```bash
+npx skills update loom -g -y
+```
+
+它取的是仓库主分支上的最新内容，可能比最近一个发布版新。
+
+**两种方式只用一种。** `deploy.py` 不会覆盖不是它部署的目录；在它装过的机器上再用 skills CLI，可能留下两份版本不同的 Loom。要换一种方式，先按[卸载](docs/uninstall.md)的说明删掉原来的，再重新安装。
+
+**升级之后**，运行 `doctor` 可以确认本机现在的版本。新版本改了项目结构或 `AGENTS.md` 里的 Loom 区块时，在项目里开新会话，AI 运行 `status` 会看到提示，并按说明迁移（`migrate`）或更新区块。要退回旧版本，见[卸载与回滚](docs/uninstall.md)。
 
 ## 它怎么工作
 

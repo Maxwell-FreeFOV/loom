@@ -2,8 +2,11 @@
 """把 loom skill 部署到本机：从源码仓库的某个版本导出 skills/loom，安装为全局 skill。
 
 用法（在 Loom 源码仓库中运行）：
-  py tools/deploy.py [--ref <tag 或 commit>] [--agents claude,codex,gemini] [--home <目录>]
+  py tools/deploy.py [--ref <tag 或 commit> | --latest] [--agents claude,codex,gemini] [--home <目录>]
                      [--skip-tests] [--allow-dirty] [--claude-hooks]
+
+升级到最新的发布版用 --latest：从远端 origin 找出版本号最大的 tag（v<主>.<次>.<修订>）并部署它。
+它不运行测试，不要求工作区干净，也不改动本地的工作区、分支和 tag；本机已装的版本不比它旧时不部署。
 
 过程：
   1. 检查：源码仓库工作区干净（--allow-dirty 跳过）；部署 HEAD 时先运行 tests/smoke_test.py（--skip-tests 跳过）。
@@ -20,6 +23,7 @@ import argparse
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,6 +69,35 @@ def export(commit, dest):
         with tarfile.open(fileobj=io.BytesIO(data)) as tar:
             tar.extractall(tmp, filter="data")
         shutil.move(str(Path(tmp) / SKILL_PATH), str(dest))
+
+
+def version_key(text):
+    """把 0.6.3 或 v0.6.3 解析成可以比较大小的元组；不是这种写法时返回 None。"""
+    m = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", str(text).strip())
+    return tuple(int(n) for n in m.groups()) if m else None
+
+
+def latest_release(remote="origin"):
+    """在远端的 tag 中找出版本号最大的发布版，把它指向的提交取到本地，返回 (tag, commit)。
+
+    只取对象，不新建也不改写本地的 tag 和分支。远端改写过历史之后，git pull 无法快进，
+    本地的同名 tag 还指向旧提交；按 tag 名直接取提交不受这两件事影响。"""
+    names = {line.split("refs/tags/", 1)[1].removesuffix("^{}")
+             for line in git("ls-remote", "--tags", remote).decode("utf-8", "replace").splitlines()
+             if "refs/tags/" in line}
+    releases = [n for n in names if n.startswith("v") and version_key(n)]
+    if not releases:
+        raise DeployError(f"远端 {remote} 上没有发布版的 tag（形如 v1.2.3）。要部署某个提交，请用 --ref。")
+    tag = max(releases, key=version_key)
+    git("fetch", "--quiet", "--no-tags", remote, f"refs/tags/{tag}")
+    return tag, git("rev-parse", "--verify", "FETCH_HEAD^{commit}").decode().strip()
+
+
+def installed_marker(home):
+    try:
+        return json.loads((home / ".agents" / "skills" / "loom" / MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def install_canonical(home, commit, ref, version):
@@ -164,7 +197,10 @@ def main():
               "请安装 3.12+ 后再运行；Windows 上可以用 py -3.12 指定版本。", file=sys.stderr)
         sys.exit(1)
     parser = argparse.ArgumentParser(description="部署 loom skill 到本机")
-    parser.add_argument("--ref", default="HEAD", help="要部署的版本（tag 或 commit），默认 HEAD")
+    which = parser.add_mutually_exclusive_group()
+    which.add_argument("--ref", default="HEAD", help="要部署的版本（tag 或 commit），默认 HEAD")
+    which.add_argument("--latest", action="store_true",
+                       help="升级：部署远端 origin 上版本号最大的发布 tag（不跑测试，不动工作区）")
     parser.add_argument("--agents", help=f"要链接的工具，逗号分隔（可选 {', '.join(AGENT_DIRS)}；默认 {', '.join(DEFAULT_AGENTS)}）")
     parser.add_argument("--home", help="用户主目录（默认当前用户，测试时可指定临时目录）")
     parser.add_argument("--skip-tests", action="store_true")
@@ -177,12 +213,23 @@ def main():
         unknown = [a for a in agents if a not in AGENT_DIRS]
         if unknown:
             raise DeployError(f"不认识的工具：{', '.join(unknown)}。可选：{', '.join(AGENT_DIRS)}")
-        if not args.allow_dirty and git("status", "--porcelain").strip():
-            raise DeployError("源码仓库有未提交的改动。请先提交（部署的是已提交的内容），或加 --allow-dirty。")
-        commit = git("rev-parse", "--verify", f"{args.ref}^{{commit}}").decode().strip()
+        if args.latest:
+            ref, commit = latest_release()
+            cur = installed_marker(home)
+            if cur.get("commit") == commit or (version_key(cur.get("version", "")) or ()) >= version_key(ref):
+                print(f"已是最新：本机是 loom {cur.get('version', '?')}，远端最新的发布版是 {ref}。没有部署。"
+                      "要部署指定的版本，请用 --ref。")
+                return
+        else:
+            if not args.allow_dirty and git("status", "--porcelain").strip():
+                raise DeployError("源码仓库有未提交的改动。请先提交（部署的是已提交的内容），或加 --allow-dirty。")
+            ref = args.ref
+            commit = git("rev-parse", "--verify", f"{ref}^{{commit}}").decode().strip()
         version = git("show", f"{commit}:{SKILL_PATH}/VERSION").decode().strip()
         head = git("rev-parse", "HEAD").decode().strip()
-        if not args.skip_tests:
+        if args.latest:
+            print(f"部署远端最新的发布版 {ref}。")
+        elif not args.skip_tests:
             if commit != head:
                 print(f"部署的不是 HEAD（{args.ref}），跳过测试。")
             else:
@@ -192,7 +239,7 @@ def main():
                                       "hook 测试需要可工作的 Bash）：\n"
                                       + (r.stdout + r.stderr).decode("utf-8", "replace")[-3000:])
                 print("smoke test 通过。")
-        canonical = install_canonical(home, commit, args.ref, version)
+        canonical = install_canonical(home, commit, ref, version)
         lines = [f"# 已部署 loom {version}（{commit[:7]}）", "", f"- 本体：{canonical}"]
         lines += [link_agent(home, a, canonical) for a in agents]
         if args.claude_hooks:

@@ -139,7 +139,15 @@ python3 tools/deploy.py
 
 The skill itself lands in `~/.agents/skills/loom`, and deploy links it into the skills directories of the tools it finds (`~/.claude/skills/loom` and `~/.codex/skills/loom` by default; `--agents claude,codex,gemini` to choose). Deploy first runs the repository's end-to-end tests, and the hook tests among them need Bash; add `--skip-tests` if you have no Bash or want to skip them.
 
-Alternatively, copy `skills/loom/` into a tool's skills directory by hand.
+If you would rather not clone the repository, the [skills CLI](https://github.com/vercel-labs/skills) can install Loom too (it currently requires Node.js 22.20 or newer):
+
+```bash
+npx skills add Maxwell-FreeFOV/loom -g -y
+```
+
+It also puts the skill in `~/.agents/skills/loom` and links it into the tools it detects. The exception is `-a claude-code`, which installs for Claude Code alone: the skill is then copied straight into `~/.claude/skills/loom`, so adjust the paths in the commands below. Use one install method, not both — see [Upgrading](#upgrading).
+
+You can also copy `skills/loom/` into a tool's skills directory by hand.
 
 **2. Create a project**
 
@@ -166,6 +174,34 @@ Open a new session in the same folder. In Claude Code, the hook injects `hot.md`
 The hooks have been checked on Claude Code 2.1.283 and 2.1.294. An older command-line install (2.1.81) did not load them and gave no warning, so if the context block does not appear, update Claude Code first. If your version still does not load the skill directory as a plugin, `py tools/deploy.py --claude-hooks` writes the same hooks into `~/.claude/settings.json` as a fallback. Use one mechanism, not both: if the plugin is loaded as well (`loom@skills-dir` shows up in `/plugin`), every hook runs twice and the session-start context is injected twice. `doctor` warns when it sees hooks in `settings.json`; remove them once the plugin loads.
 
 To create a project without going through the AI: `py "$HOME/.agents/skills/loom/scripts/loom.py" init --name my-project --language en` (use `python3` instead of `py` on macOS/Linux; `--language zh-CN` for a Chinese project; omitted means English).
+
+## Upgrading
+
+Upgrading replaces Loom on your machine and leaves the files in your projects alone; the new version takes effect in the next session. For what each version changed, and anything you need to do by hand afterwards, see [CHANGELOG.md](CHANGELOG.md) (Chinese).
+
+**If you installed from a clone**, run this in the directory you cloned into:
+
+```bash
+py tools/deploy.py --latest        # python3 on macOS / Linux
+```
+
+It finds the release with the highest version number on GitHub and deploys it. It runs no tests, does not touch the files in your clone, and does nothing when you already have the latest release.
+
+- Forgot where the clone is: the `source` field in `~/.agents/skills/loom/.loom-deploy.json` records it.
+- `--latest` is not recognized: the deploy script in your clone is an old one, so run `git pull` first. If `git pull` fails (for example, it reports divergent branches or that it cannot fast-forward), delete the directory and clone again.
+- If you used `--claude-hooks`, pass it again when upgrading.
+
+**If you installed with the skills CLI**:
+
+```bash
+npx skills update loom -g -y
+```
+
+It takes whatever is on the repository's main branch, which can be newer than the latest release.
+
+**Use one method, not both.** `deploy.py` will not overwrite a directory it did not deploy; running the skills CLI on a machine where `deploy.py` installed Loom can leave two copies of Loom at different versions. To switch methods, remove the old install as described under [uninstalling](docs/uninstall.md), then install again.
+
+**After upgrading**, run `doctor` to confirm the version now on your machine. When a new version changes the project structure or the Loom block in `AGENTS.md`, open a new session in the project: the AI sees a notice when it runs `status` and follows the instructions to migrate (`migrate`) or refresh the block. To go back to an older version, see [uninstalling and rolling back](docs/uninstall.md).
 
 ## How it works
 

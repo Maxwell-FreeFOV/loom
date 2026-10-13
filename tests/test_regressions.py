@@ -1088,6 +1088,96 @@ class TestClaudeHooksFallback(TempDirTest):
         self.assertIn("各执行一次", self.doctor(), "settings.json 和插件两份 hook 可能同时生效，要提示")
 
 
+class TestDeployLatest(TempDirTest):
+    """deploy.py --latest：按远端版本号最大的发布 tag 部署。不依赖 git pull，也不改动本地的工作区、分支和 tag。"""
+
+    def setUp(self):
+        super().setUp()
+        self.upstream = self.tmp / "upstream"
+        self.upstream.mkdir()
+        git(self.upstream, "init", "-q", "-b", "main")
+        shutil.copytree(REPO / "tools", self.upstream / "tools", ignore=shutil.ignore_patterns("__pycache__"))
+        self.release("0.9.0")
+        self.clone = self.tmp / "clone"
+        git(self.tmp, "clone", "-q", self.upstream, self.clone)
+        self.home = self.tmp / "home"
+        (self.home / ".claude").mkdir(parents=True)
+
+    def release(self, version, tag_args=()):
+        """在上游提交一个版本；tag_args 为 None 时不打 tag。"""
+        write(self.upstream / "skills/loom/VERSION", version + "\n")
+        write(self.upstream / "skills/loom/SKILL.md", f"loom {version}\n")
+        git(self.upstream, "add", "-A")
+        git(self.upstream, "commit", "-qm", f"Loom {version}")
+        if tag_args is not None:
+            git(self.upstream, "tag", *tag_args, f"v{version}")
+
+    def deploy(self, *args):
+        return run(PY, self.clone / "tools/deploy.py", "--home", self.home, "--agents", "claude", *args)
+
+    def marker(self):
+        return json.loads(read(self.home / ".agents/skills/loom/.loom-deploy.json"))
+
+    def test_deploys_highest_release_tag(self):
+        """版本号按数值比较（0.10.0 高于 0.9.1），不是发布版的 tag 不算；克隆落后、有未提交的改动也照常部署，且不被改动。"""
+        self.release("0.9.1")
+        self.release("0.10.0", tag_args=("-a", "-m", "附注 tag"))
+        self.release("0.11.0", tag_args=None)
+        git(self.upstream, "tag", "v0.11.0-rc1")
+        git(self.upstream, "tag", "nightly")
+        write(self.clone / "草稿.md", "没提交的改动\n")
+        head, tags = git(self.clone, "rev-parse", "HEAD"), git(self.clone, "tag")
+        rc, out = self.deploy("--latest")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((self.marker()["version"], self.marker()["ref"]), ("0.10.0", "v0.10.0"), out)
+        self.assertEqual(read(self.home / ".agents/skills/loom/SKILL.md"), "loom 0.10.0\n")
+        self.assertEqual((git(self.clone, "rev-parse", "HEAD"), git(self.clone, "tag")), (head, tags),
+                         "--latest 不应移动本地的 HEAD，也不应新建或改写本地的 tag")
+
+    def test_survives_rewritten_history(self):
+        """上游改写过历史：git pull 无法快进，本地的同名 tag 指向旧提交，--latest 仍能装上新的发布版。"""
+        old = git(self.clone, "rev-parse", "v0.9.0")
+        git(self.upstream, "commit", "-q", "--amend", "-m", "改写过的历史")
+        git(self.upstream, "tag", "-f", "v0.9.0")
+        self.release("0.9.1")
+        rc, out = run("git", "pull", "--ff-only", cwd=self.clone)
+        self.assertNotEqual(rc, 0, f"fixture 前提：改写历史后 git pull 无法快进\n{out}")
+        rc, out = self.deploy("--latest")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.marker()["version"], "0.9.1", out)
+        self.assertEqual(git(self.clone, "rev-parse", "v0.9.0"), old, "本地的旧 tag 不应被改写")
+
+    def test_never_redeploys_or_downgrades(self):
+        """已装的就是最新发布版时不重复部署；已装的比最新发布版还新（开发者从 HEAD 部署的）时不降级。"""
+        rc, out = self.deploy("--latest")
+        self.assertEqual((rc, self.marker()["version"]), (0, "0.9.0"), out)
+        first = read(self.home / ".agents/skills/loom/.loom-deploy.json")
+        rc, out = self.deploy("--latest")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("没有部署", out)
+        self.assertEqual(read(self.home / ".agents/skills/loom/.loom-deploy.json"), first)
+        write(self.clone / "skills/loom/VERSION", "0.9.5\n")
+        git(self.clone, "commit", "-qam", "开发中的版本")
+        rc, out = self.deploy("--skip-tests")
+        self.assertEqual((rc, self.marker()["version"]), (0, "0.9.5"), out)
+        rc, out = self.deploy("--latest")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("没有部署", out)
+        self.assertEqual(self.marker()["version"], "0.9.5", "不应降回 0.9.0")
+
+    def test_refuses_without_release_tag_or_with_ref(self):
+        """远端没有发布 tag 时报错并说明；--latest 和 --ref 不能同时用。"""
+        empty = self.tmp / "empty.git"
+        git(self.tmp, "init", "-q", "--bare", empty)
+        git(self.clone, "remote", "set-url", "origin", empty)
+        rc, out = self.deploy("--latest")
+        self.assertNotEqual(rc, 0, out)
+        self.assertIn("没有发布版的 tag", out)
+        self.assertFalse((self.home / ".agents/skills/loom").exists())
+        rc, out = self.deploy("--latest", "--ref", "v0.9.0")
+        self.assertNotEqual(rc, 0, out)
+
+
 class TestSmallFixes(TempDirTest):
     def test_lint_points_to_loom_wrapup(self):
         proj = self.tmp / "proj"
