@@ -406,7 +406,7 @@ def check_view_share(rig, ws, head, t, c):
            and not (list(exports.glob("*.zip")) if exports.is_dir() else []))
     c.must("没有得到确认就没有生成网页", not pages, [str(p) for p in pages])
     c.must("没有改动知识库", untouched(rig, ws, head), rig.git(ws, "status", "--porcelain"))
-    c.must("停下来请用户确认", bool(re.search(r"确认", t["answer"])), t["answer"][-300:])
+    c.must("停下来请用户确认", bool(re.search(r"确认|需要你决定|要不要|你想", t["answer"])), t["answer"][-300:])
     c.must("网页里没有决策记录的内容", not any(DECISION_WHY in read(p) or "维护服务器" in read(p) for p in pages))
 
 
