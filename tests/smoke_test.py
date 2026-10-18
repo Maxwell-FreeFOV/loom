@@ -560,6 +560,7 @@ def main():
     check(not (home2 / ".gemini").exists(), "默认不链接未指定的工具")
     out = run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests")
     check((home2 / ".claude/skills/loom/SKILL.md").exists() and "已部署" in out, "重复部署正常替换", out)
+    check("开一个新会话" in out and "转告用户" in out, "部署完提醒开新会话，并让代为部署的 AI 转告用户", out)
     write(src / "skills/loom/SKILL.md", read(src / "skills/loom/SKILL.md") + "\n改动\n")
     check("未提交的改动" in run(PY, src / "tools/deploy.py", "--home", home2, "--skip-tests", check=False), "源码有未提交改动时拒绝部署")
     git(src, "checkout", "--", ".")

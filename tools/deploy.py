@@ -244,7 +244,10 @@ def main():
         lines += [link_agent(home, a, canonical) for a in agents]
         if args.claude_hooks:
             lines.append(install_claude_hooks(home, canonical))
-        lines += ["", "新版本从下一次会话开始生效。在 Claude Code 中可以用 /plugin 查看 loom@skills-dir 是否已加载（它提供 hook）。"]
+        # AI 代用户部署时常常不转告这一步（行为测试 b0、b1 是 0/4），所以直接写给 AI
+        lines += ["", "新版本从下一次会话开始生效：关掉当前会话，开一个新会话。"
+                  "如果是 AI 代用户部署的，请把这一句原样转告用户。",
+                  "在 Claude Code 中可以用 /plugin 查看 loom@skills-dir 是否已加载（它提供 hook）。"]
         print("\n".join(lines))
     except DeployError as e:
         print(f"❌ {e}", file=sys.stderr)
