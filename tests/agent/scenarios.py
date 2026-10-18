@@ -244,9 +244,14 @@ def old_clone(rig, ws):
     import subprocess
     import sys
     no_loom(rig, ws)
+    import os
+    import shutil
     clone = rig.userhome / "loom"
+    if clone.exists():  # 同一批里先跑的场景（b0）可能已经让 AI 克隆到这里，而且可能是浅克隆
+        shutil.rmtree(clone, onexc=lambda f, x, _: (os.chmod(x, 0o700), f(x)))
     rig.git(rig.userhome, "clone", "-q", "https://github.com/Maxwell-FreeFOV/loom.git", str(clone))
     rig.git(clone, "reset", "-q", "--hard", OLD_MAIN)
+    assert rig.git(clone, "rev-parse", "--short", "HEAD").startswith(OLD_MAIN), rig.git(clone, "log", "--oneline", "-1")
     r = subprocess.run([sys.executable, str(clone / "tools/deploy.py"), "--home", str(rig.userhome), "--skip-tests"],
                        cwd=clone, env=rig.env(), capture_output=True)
     assert r.returncode == 0 and read(rig.userhome / ".agents/skills/loom/VERSION").strip() == "0.6.3", r.stdout + r.stderr
