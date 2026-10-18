@@ -8,7 +8,7 @@ tags: []
 
 # 🔥 {{PROJECT_NAME}}
 
-> The first page to read in every session (injected automatically by the hook in Claude Code). Keep it within one page; maintained by loom's wrapup.
+> Where the project stands now. The AI updates it at every archive and reads it first in every session; you can edit it too. Keep it within one page.
 
 ## In one sentence
 {{SUMMARY}}

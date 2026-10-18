@@ -447,10 +447,12 @@ def reminders(notes, lang="zh-CN", at_start=False, current_session=None):
     if at_start and any(prompts_of(n) > 1 for n in ended):
         out.append(L(lang, f"有 {len(ended)} 个已结束的会话尚未归档（最近一个：{ended[-1].path.stem}）。"
                            "在第一次回复的开头用一句话问用户：要不要现在用 loom skill 的 wrapup 补归档。"
+                           "用平常话问，例如：\"上次的讨论还没归档，要我现在归档吗？\""
                            "只问一次，用户说不用就不再提。",
                      f"{len(ended)} finished session(s) not yet archived (latest: {ended[-1].path.stem}). "
                      "At the top of your first reply, ask the user in one sentence whether to archive them now "
-                     "with loom's wrapup. Ask once only; if the user declines, do not bring it up again."))
+                     "with loom's wrapup. Use plain words, e.g. \"Our last discussion isn't archived yet. Shall I archive it now?\" "
+                     "Ask once only; if the user declines, do not bring it up again."))
     elif pending:
         out.append(L(lang, f"有 {len(pending)} 个会话尚未归档（最近一个：{pending[-1].path.stem}）。"
                            "用户结束讨论时，建议用 loom skill 的 wrapup 一并归档。",

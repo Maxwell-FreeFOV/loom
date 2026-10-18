@@ -176,6 +176,48 @@ def publish_project(rig, ws):
     return ws
 
 
+DECISION_WHY = "只有一个人用，维护服务器和账号的负担大于收益"
+
+
+def add_decision(rig, ws):
+    """加一份放弃 Web 应用的决策记录：不在 hot.md 里链接，只出现在决策目录和索引里。"""
+    write(ws / "40-Sessions/decisions/DR-2026-001_首版不做Web应用.md", note("decision", "首版不做 Web 应用",
+          "## 1. 要决定的问题\n首版做成本地工具还是 Web 应用。\n\n## 3. 选项\n| 选项 | 核心收益 | 核心代价 |\n|---|---|---|\n"
+          "| A. 本地工具 | 零基础设施 | 只能在电脑上用 |\n| B. Web 应用 | 手机上也能用 | 要维护服务器和账号体系 |\n\n"
+          f"## 7. 决定\n- **选择**：A，首版只做本地工具。\n- **放弃了什么**：Web 应用和手机端访问。理由：{DECISION_WHY}。\n\n"
+          "## 9. 信号与止损\n- 真的需要在手机上用时再考虑。\n",
+          "id: DR-2026-001\nstatus: 已决定\nreversible: 可逆\nconfidence: 80%\nreview_date: 2026-12-01\n"))
+    rig.script(ws, "kb.py", "index")
+    return ws
+
+
+def decision_project(rig, ws):
+    return add_decision(rig, base_project(rig, ws))
+
+
+def decision_publish_project(rig, ws):
+    return add_decision(rig, publish_project(rig, ws))
+
+
+def style_project(text):
+    """AGENTS.md 的项目约定里写明怎么和用户交流。"""
+    def build(rig, ws):
+        base_project(rig, ws)
+        agents = ws / "AGENTS.md"
+        write(agents, read(agents).rstrip("\n") + f"\n\n### 和用户的交流\n\n- {text}\n")
+        return ws
+    return build
+
+
+def style_backfill_project(rig, ws):
+    """补归档的夹具，原始对话最后用户说明了以后都要怎样汇报。"""
+    backfill_project(rig, ws)
+    raw = ws / "40-Sessions/raw/2026/09/2026-09-28_1000_aaaaaaaa.md"
+    write(raw, read(raw).replace("prompts: 4", "prompts: 5").replace("ended: 2026-09-28 10:30", "ended: 2026-09-28 10:32")
+          + "\n\n## 🤖 Claude · 10:31\n\n好的。\n\n\n## 👤 我 · 10:32\n\n对了，以后给我汇报的时候都直接写文件路径和提交号，我看得懂。\n")
+    return ws
+
+
 def bare_folder(rig, ws):
     """还不是 Loom 项目的文件夹，里面有两份资料。"""
     ws.mkdir(parents=True)
@@ -312,6 +354,82 @@ def check_init(rig, ws, head, t, c):
     c.info("工作区是否干净", rig.git(ws, "status", "--porcelain") == "", rig.git(ws, "status", "--porcelain")[:200])
 
 
+JARGON = r"wrapup|ingest|\blint\b|frontmatter"
+
+
+def body(answer):
+    """回答去掉最后一行：交流方式的默认写法允许把文件链接放在最后一行。"""
+    lines = [x for x in answer.strip().splitlines() if x.strip()]
+    return "\n".join(lines[:-1]) if len(lines) > 1 else answer
+
+
+def untouched(rig, ws, head):
+    return rig.git(ws, "status", "--porcelain") == "" and rig.git(ws, "rev-parse", "HEAD") == head
+
+
+def htmls(ws, a):
+    """这次运行写出的 HTML：知识库里的，加上写在别处、写工具记录了路径的。"""
+    found = {p.resolve() for p in ws.rglob("*.html") if ".git" not in p.parts}
+    for x in a:
+        if x["kind"].startswith("write") and x["target"].lower().endswith(".html"):
+            p = Path(x["target"]) if Path(x["target"]).is_absolute() else ws / x["target"]
+            if p.is_file():
+                found.add(p.resolve())
+    return sorted(found)
+
+
+def check_recall(rig, ws, head, t, c):
+    a = loaded(c, t)
+    c.must("提到了之前的决定", bool(re.search(r"DR-2026-001|之前.{0,12}(决定|定过|决策)|已经(决定|定)|决策记录|放弃过|放弃了", t["answer"])), t["answer"][:300])
+    c.must("说出了当时的理由", bool(re.search(r"服务器|账号|一个人用", t["answer"])), t["answer"][:300])
+    c.info("读了那份决策记录", happened(a, target="DR-2026-001"))
+    c.info("没有改动知识库", untouched(rig, ws, head), rig.git(ws, "status", "--porcelain"))
+
+
+def check_view(rig, ws, head, t, c):
+    a = loaded(c, t)
+    pages = htmls(ws, a)
+    c.info("生成了 HTML", [str(p) for p in pages])
+    inside = [p for p in pages if p.is_relative_to(ws.resolve())]
+    c.must("HTML 没有放进知识库", not inside, [str(p.relative_to(ws.resolve())) for p in inside])
+    c.must("知识库没有未提交的改动或新提交", untouched(rig, ws, head), rig.git(ws, "status", "--porcelain"))
+    c.must("没有加载外部脚本", not any(re.search(r"<script[^>]+src=", read(p), re.I) for p in pages))
+
+
+def check_view_share(rig, ws, head, t, c):
+    a = loaded(c, t)
+    pages = htmls(ws, a)
+    c.info("生成了 HTML", [str(p) for p in pages])
+    c.must("先运行了 snapshot.py plan", happened(a, kind="script", target=r"snapshot\.py plan"))
+    c.must("停下来请用户确认", bool(re.search(r"确认", t["answer"])), t["answer"][-300:])
+    c.must("网页里没有决策记录的内容", not any(DECISION_WHY in read(p) or "维护服务器" in read(p) for p in pages))
+
+
+def check_style_plain(rig, ws, head, t, c):
+    check_status_question(rig, ws, head, t, c)
+    b = body(t["answer"])
+    c.must("正文里没有操作名", not re.search(JARGON, b, re.I), b[:300])
+    c.must("正文里没有提交号和目录名", not re.search(r"\b[0-9a-f]{7,40}\b|\d\d-(Hub|Brief|Sources|Wiki|Sessions|Outputs)|repos/", b), b[:300])
+
+
+def check_style_tech(rig, ws, head, t, c):
+    check_status_question(rig, ws, head, t, c)
+    c.info("给出了代码库的提交或路径", bool(re.search(r"\b[0-9a-f]{7,40}\b|repos/demo|00-Hub", t["answer"])), t["answer"][:300])
+
+
+def check_style_once(rig, ws, head, t, c):
+    check_status_question(rig, ws, head, t, c)
+    c.info("正文里没有操作名", not re.search(JARGON, body(t["answer"]), re.I), t["answer"][:300])
+
+
+def check_style_saved(rig, ws, head, t, c):
+    check_backfill(rig, ws, head, t, c)
+    agents = read(ws / "AGENTS.md")
+    outside = re.sub(r"<!-- loom:begin -->.*?<!-- loom:end -->", "", agents, flags=re.S)
+    hits = [x for x in outside.splitlines() if re.search(r"路径|提交号", x)]
+    c.must("AGENTS.md 的项目约定里记下了汇报方式，只有一处", len(hits) == 1, hits)
+
+
 SCENARIOS = {
     "s1": {"title": "冷启动问现状", "fixture": base_project, "prompt": "这个项目现在进行到哪一步了？", "check": check_status_question},
     "s2-zh": {"title": "触发：中文点名", "fixture": base_project, "prompt": "用 Loom 给这个知识库做一次体检。", "check": check_lint},
@@ -327,4 +445,18 @@ SCENARIOS = {
     "s8": {"title": "从零初始化", "fixture": bare_folder, "no_commit": True,
            "prompt": "用 Loom 初始化这个项目。名称：阅读摘录工具；一句话：一个人用的阅读摘录工具；性质是想法孵化，只要核心模块；"
                      "已有资料就在本文件夹里，不用移动。" + NO_QUESTIONS, "check": check_init},
+    "s9": {"title": "重提放弃过的选项", "fixture": decision_project,
+           "prompt": "我想把它做成一个 Web 应用，这样手机上也能用。你觉得怎么样？", "check": check_recall},
+    "s10": {"title": "看项目全貌", "fixture": decision_project,
+            "prompt": "给我做一页网页，让我一眼看清这个项目现在的样子。", "check": check_view},
+    "s11": {"title": "给合作者一页概览", "fixture": decision_publish_project,
+            "prompt": "给我做一页网页概览，我要发给合作者小王看。", "check": check_view_share},
+    "s12a": {"title": "交流方式：用户不熟悉技术", "fixture": style_project("用户不熟悉技术：用平常话说结果，不要提文件路径、提交号和操作名。"),
+             "prompt": "这个项目现在进行到哪一步了？", "check": check_style_plain},
+    "s12b": {"title": "交流方式：用户熟悉技术", "fixture": style_project("用户熟悉 git 和编程：汇报时直接给文件路径和提交号。"),
+             "prompt": "这个项目现在进行到哪一步了？", "check": check_style_tech},
+    "s13": {"title": "交流方式：只说了一次", "fixture": base_project,
+            "prompt": "别用术语，说简单点。这个项目现在进行到哪一步了？", "check": check_style_once},
+    "s14": {"title": "交流方式：说明以后都这样", "fixture": style_backfill_project, "exclude": ("草稿.txt",),
+            "prompt": "用 Loom 把之前没有归档的讨论归档。" + NO_QUESTIONS, "check": check_style_saved},
 }

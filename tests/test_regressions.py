@@ -542,9 +542,10 @@ class TestBilingual(TempDirTest):
         self.assertIn("## Loom 知识库", read(proj / "AGENTS.md"))
 
     def test_agents_template_keeps_state_in_hot(self):
-        """AGENTS.md 模板不预置"当前阶段"这类会变的状态（指向 hot.md），并预置"以什么为准"和"不再沿用的说法"两小节。"""
-        cases = {"zh-CN": (r"(?m)^- 当前阶段：", ("### 以什么为准", "### 不再沿用的说法")),
-                 "en": (r"(?m)^- Current phase:", ("### Source of truth", "### Statements no longer in use"))}
+        """AGENTS.md 模板不预置"当前阶段"这类会变的状态（指向 hot.md），并预置"以什么为准"、"不再沿用的说法"、"和用户的交流"三小节。"""
+        cases = {"zh-CN": (r"(?m)^- 当前阶段：", ("### 以什么为准", "### 不再沿用的说法", "### 和用户的交流")),
+                 "en": (r"(?m)^- Current phase:", ("### Source of truth", "### Statements no longer in use",
+                                                   "### Communicating with the user"))}
         for lang, (state_line, headings) in cases.items():
             proj = self.tmp / lang
             init_project(proj, "demo", lang=lang)
@@ -758,6 +759,7 @@ class TestHotDrift(TempDirTest):
         self.assertIn("hot.md 最后更新于", out)
         self.assertLess(out.index("hot.md 最后更新于"), out.index("## 一句话"), "过期提示要出现在 hot.md 正文之前")
         self.assertIn("在第一次回复的开头用一句话问用户", out)
+        self.assertIn("用平常话问", out, "给 AI 一句不带操作名的问法，免得它把 wrapup 原样说给用户")
         rc, status = run(PY, SCRIPTS / "loom.py", "status", "--no-export", cwd=self.proj)
         self.assertEqual(rc, 0, status)
         self.assertIn("hot.md 最后更新于", status)
