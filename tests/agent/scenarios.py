@@ -218,6 +218,60 @@ def style_backfill_project(rig, ws):
     return ws
 
 
+REAL_DEPLOY = Path.home() / ".agents/skills/loom/.loom-deploy.json"  # 跑测试的这台机器上真正的部署记录，不能被动到
+_real_mtime = {}
+
+
+def no_loom(rig, ws):
+    """本机还没有装 Loom：删掉 rig 预先部署进测试主目录的 skill 和链接，只留一个空文件夹。"""
+    import os
+    import shutil
+    for d in (rig.userhome / ".claude/skills/loom", rig.userhome / ".codex/skills/loom", rig.userhome / ".agents/skills/loom"):
+        if d.is_symlink() or d.is_junction():
+            os.unlink(d) if d.is_symlink() else os.rmdir(d)
+        elif d.is_dir():
+            shutil.rmtree(d, onexc=lambda f, x, _: (os.chmod(x, 0o700), f(x)))
+    _real_mtime["v"] = REAL_DEPLOY.stat().st_mtime if REAL_DEPLOY.exists() else None
+    ws.mkdir(parents=True)
+    return ws
+
+
+OLD_MAIN = "9e10f92"  # 0.6.3 发布时的 main：它的 deploy.py 还没有 --latest
+
+
+def old_clone(rig, ws):
+    """0.6.3 时从 GitHub 克隆、部署过的用户：克隆在测试主目录里，main 停在 0.6.3。"""
+    import subprocess
+    import sys
+    no_loom(rig, ws)
+    clone = rig.userhome / "loom"
+    rig.git(rig.userhome, "clone", "-q", "https://github.com/Maxwell-FreeFOV/loom.git", str(clone))
+    rig.git(clone, "reset", "-q", "--hard", OLD_MAIN)
+    r = subprocess.run([sys.executable, str(clone / "tools/deploy.py"), "--home", str(rig.userhome), "--skip-tests"],
+                       cwd=clone, env=rig.env(), capture_output=True)
+    assert r.returncode == 0 and read(rig.userhome / ".agents/skills/loom/VERSION").strip() == "0.6.3", r.stdout + r.stderr
+    return ws
+
+
+def check_ai_upgrade(rig, ws, head, t, c):
+    check_ai_install(rig, ws, head, t, c)
+    skill = rig.userhome / ".agents/skills/loom"
+    c.must("升级到了 0.7.0", read(skill / "VERSION").strip() == "0.7.0", read(skill / "VERSION"))
+    c.info("用了 deploy.py --latest", happened(t["actions"], target=r"deploy\.py.*--latest"))
+
+
+def check_ai_install(rig, ws, head, t, c):
+    a = t["actions"]
+    skill = rig.userhome / ".agents/skills/loom"
+    c.must("装上了 loom skill", (skill / "SKILL.md").is_file())
+    after = REAL_DEPLOY.stat().st_mtime if REAL_DEPLOY.exists() else None
+    c.must("没有动到这台机器上真正的 Loom", after == _real_mtime.get("v"), str(REAL_DEPLOY))
+    c.info("用 deploy.py 部署（有部署记录）", (skill / ".loom-deploy.json").is_file())
+    c.info("装的版本", read(skill / "VERSION").strip())
+    c.info("跑了 doctor", happened(a, target=r"doctor"))
+    c.info("提醒要开新会话", bool(re.search(r"新会话|新开|重新打开|重启|new session|restart", t["answer"], re.I)), t["answer"][-300:])
+
+
 def bare_folder(rig, ws):
     """还不是 Loom 项目的文件夹，里面有两份资料。"""
     ws.mkdir(parents=True)
@@ -477,6 +531,12 @@ SCENARIOS = {
              "prompt": "这个项目现在进行到哪一步了？", "check": check_style_tech},
     "s13": {"title": "交流方式：只说了一次", "fixture": base_project,
             "prompt": "别用术语，说简单点。这个项目现在进行到哪一步了？", "check": check_style_once},
+    "b0": {"title": "让 AI 安装 Loom", "fixture": no_loom, "no_commit": True,
+           "prompt": "请按 https://github.com/Maxwell-FreeFOV/loom 上的说明，帮我在这台电脑上安装 Loom。" + NO_QUESTIONS,
+           "check": check_ai_install},
+    "b1": {"title": "让 AI 升级 Loom", "fixture": old_clone, "no_commit": True,
+           "prompt": "请按 https://github.com/Maxwell-FreeFOV/loom 上的说明，帮我把这台电脑上的 Loom 升级到最新版。" + NO_QUESTIONS,
+           "check": check_ai_upgrade},
     "s14": {"title": "交流方式：说明以后都这样", "fixture": style_backfill_project, "exclude": ("草稿.txt",),
             "prompt": "用 Loom 把之前没有归档的讨论归档。" + NO_QUESTIONS, "check": check_style_saved},
 }
