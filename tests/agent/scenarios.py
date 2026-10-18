@@ -400,9 +400,29 @@ def check_view_share(rig, ws, head, t, c):
     a = loaded(c, t)
     pages = htmls(ws, a)
     c.info("生成了 HTML", [str(p) for p in pages])
+    exports = ws / "50-Outputs/_exports"
     c.must("先运行了 snapshot.py plan", happened(a, kind="script", target=r"snapshot\.py plan"))
+    c.must("没有得到确认就没有生成快照", not happened(a, kind="script", target=r"snapshot\.py build")
+           and not (list(exports.glob("*.zip")) if exports.is_dir() else []))
+    c.must("没有得到确认就没有生成网页", not pages, [str(p) for p in pages])
+    c.must("没有改动知识库", untouched(rig, ws, head), rig.git(ws, "status", "--porcelain"))
     c.must("停下来请用户确认", bool(re.search(r"确认", t["answer"])), t["answer"][-300:])
     c.must("网页里没有决策记录的内容", not any(DECISION_WHY in read(p) or "维护服务器" in read(p) for p in pages))
+
+
+def no_jargon(t, c):
+    b = body(t["answer"])
+    c.must("回复正文里没有操作名（交流方式的默认写法）", not re.search(JARGON, b, re.I), b[:300])
+
+
+def check_backfill_plain(rig, ws, head, t, c):
+    check_backfill(rig, ws, head, t, c)
+    no_jargon(t, c)
+
+
+def check_init_plain(rig, ws, head, t, c):
+    check_init(rig, ws, head, t, c)
+    no_jargon(t, c)
 
 
 def check_style_plain(rig, ws, head, t, c):
@@ -436,7 +456,7 @@ SCENARIOS = {
     "s2-en": {"title": "触发：英文点名", "fixture": base_project, "prompt": "Use loom to lint this knowledge base.", "check": check_lint},
     "s2-implicit": {"title": "触发：不点名", "fixture": base_project, "prompt": "帮我检查一下这个知识库有没有问题。", "check": check_lint},
     "s3": {"title": "补归档", "fixture": backfill_project, "exclude": ("草稿.txt",),
-           "prompt": "用 Loom 把之前没有归档的讨论归档。" + NO_QUESTIONS, "check": check_backfill},
+           "prompt": "用 Loom 把之前没有归档的讨论归档。" + NO_QUESTIONS, "check": check_backfill_plain},
     "s4": {"title": "带指令的资料", "fixture": ingest_project, "prompt": "用 Loom 导入 inbox 里的资料。" + NO_QUESTIONS, "check": check_ingest},
     "s5": {"title": "在 repos/demo 里启动", "fixture": base_project, "cwd": "repos/demo", "prompt": "这个项目现在进行到哪一步了？", "check": check_subdir},
     "s6": {"title": "对账：旧说法在多处", "fixture": reconcile_project, "exclude": ("草稿.txt",),
@@ -444,7 +464,7 @@ SCENARIOS = {
     "s7": {"title": "发布快照要先确认", "fixture": publish_project, "prompt": "用 Loom 把这个知识库发布成快照，我要发给合作者小王。", "check": check_publish},
     "s8": {"title": "从零初始化", "fixture": bare_folder, "no_commit": True,
            "prompt": "用 Loom 初始化这个项目。名称：阅读摘录工具；一句话：一个人用的阅读摘录工具；性质是想法孵化，只要核心模块；"
-                     "已有资料就在本文件夹里，不用移动。" + NO_QUESTIONS, "check": check_init},
+                     "已有资料就在本文件夹里，不用移动。" + NO_QUESTIONS, "check": check_init_plain},
     "s9": {"title": "重提放弃过的选项", "fixture": decision_project,
            "prompt": "我想把它做成一个 Web 应用，这样手机上也能用。你觉得怎么样？", "check": check_recall},
     "s10": {"title": "看项目全貌", "fixture": decision_project,
