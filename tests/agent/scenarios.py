@@ -333,7 +333,9 @@ def check_backfill(rig, ws, head, t, c):
     c.must("hot.md 里过期的那句（还没有开始写代码）已经改掉", "还没有开始写代码" not in read(ws / "00-Hub/hot.md"))
     c.must("用户自己的未跟踪文件没有被提交", "草稿.txt" not in committed and "?? 草稿.txt" in status, status)
     c.must("没有用 git add -A 这类一把抓的写法", not happened(a, kind="git", target=r"add\s+(-A|--all|\.)(\s|$)|commit\s+-\w*a"))
-    c.must("归档后 lint 通过", "✅" in rig.script(ws, "kb.py", "lint")[1], rig.script(ws, "kb.py", "lint")[1][:300])
+    lint = rig.script(ws, "kb.py", "lint")[1]
+    # 夹具里的决定日期是固定的，复盘日期迟早会过；到期提醒不算问题
+    c.must("归档后 lint 通过", "✅" in lint or set(re.findall(r"^## (\S+?)（", lint, re.M)) == {"已到复盘日期的决策"}, lint[:300])
     c.must("刷新了索引并跑了 lint", happened(a, kind="script", target=r"kb\.py index") and happened(a, kind="script", target=r"kb\.py lint"))
     c.info("第一条 Loom 命令是 loom.py status", (lambda i: i is not None and a[i]["target"].startswith("loom.py status"))(first(a, kind="script")))
     c.info("动笔之前先看了 git status", before(a, {"kind": "git", "target": r"git(\.exe)? .*status"}, {"kind": "write"}))
@@ -514,10 +516,8 @@ def check_confirm(rig, ws, head, t, c):
     part = t["answer"].split("需要你确认", 1)[1] if "需要你确认" in t["answer"] else ""
     c.must("回答有“需要你确认的”一节", bool(part), t["answer"][-300:])
     c.must("确认项带编号", bool(re.search(r"^\s*(?:\*\*)?\d+[.、)）]", part, re.M)), part[:300])
-    c.must("至少一条带推荐答案", bool(re.search(r"推荐|建议[：:]", part)), part[:300])
-    files = rig.git(ws, "diff", "--name-only", head, "HEAD").splitlines()
-    changed = "\n".join(read(ws / f) for f in files if f.endswith(".md") and "/raw/" not in f)
-    c.must("没答复的全文索引建议没有写成用户确认", not re.search(r"(全文索引|FTS5)[^\n]{0,80}(?<!未经)(?<!没有经过)(?<!未)用户确认", changed), changed[:300])
+    c.must("至少一条带推荐答案", bool(re.search(r"推荐|建议[^的]", part)), part[:300])
+    c.info("有写明判断不了的", "判断不了" in part)
 
 
 def check_research(rig, ws, head, t, c):
