@@ -514,10 +514,10 @@ def check_confirm(rig, ws, head, t, c):
     part = t["answer"].split("需要你确认", 1)[1] if "需要你确认" in t["answer"] else ""
     c.must("回答有“需要你确认的”一节", bool(part), t["answer"][-300:])
     c.must("确认项带编号", bool(re.search(r"^\s*(?:\*\*)?\d+[.、)）]", part, re.M)), part[:300])
-    c.must("至少一条带推荐答案", bool(re.search(r"建议|推荐", part)), part[:300])
+    c.must("至少一条带推荐答案", bool(re.search(r"推荐|建议[：:]", part)), part[:300])
     files = rig.git(ws, "diff", "--name-only", head, "HEAD").splitlines()
     changed = "\n".join(read(ws / f) for f in files if f.endswith(".md") and "/raw/" not in f)
-    c.must("没答复的全文索引建议没有写成用户确认", not re.search(r"(全文索引|FTS5)[^\n]{0,80}用户确认", changed), changed[:300])
+    c.must("没答复的全文索引建议没有写成用户确认", not re.search(r"(全文索引|FTS5)[^\n]{0,80}(?<!未经)(?<!没有经过)(?<!未)用户确认", changed), changed[:300])
 
 
 def check_research(rig, ws, head, t, c):
