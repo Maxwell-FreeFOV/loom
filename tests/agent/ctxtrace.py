@@ -4,7 +4,8 @@
   python ctxtrace.py <session.jsonl> [--workspace <夹具项目目录>] [--json]
 
 日志要是一行一个事件的普通 JSONL（见 rig.py 写出的 patch）。只依赖这些事件和字段：
-  request/header        data.header.system、data.header.tools
+  request/header        data.header.tools（0.1 的 data.header.system 在 0.2 改成了 system/message）
+  system/message        data.message.content
   user/message          data.content、data.source.kind（user / plugin / skill-catalog / agent-instructions）
   tool/call             data.step、data.callId、data.name、data.arguments（JSON 字符串）
   tool/result           data.step、data.message.source.callId、data.message.content
@@ -119,6 +120,8 @@ def analyze(events, workspace=None):
             baseline["system"] = len(h.get("system") or "")
             baseline["tools"] = len(json.dumps(h.get("tools") or [], ensure_ascii=False))
             baseline["tool_count"] = len(h.get("tools") or [])
+        elif t == "system/message" and not baseline["system"]:
+            baseline["system"] = len(text_of((d.get("message") or {}).get("content")))
         elif t == "user/message":
             src, text = d.get("source") or {}, text_of(d.get("content"))
             kind = src.get("kind")

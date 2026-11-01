@@ -9,7 +9,7 @@
 为什么连 USERPROFILE 都换掉：模型运行脚本时常常自己拼出 ~/.agents/skills/loom 这个路径，不换的话执行的是
 本机真正部署的那一份，而不是被测的提交。换掉之后 git 读不到全局身份，所以另外用环境变量给一个测试身份。
 
-模型路由和密钥来自一个已有的 dsh home（默认 ~/.dsh）：settings.yaml 原样复制；.credentials.yaml 只在运行期间
+模型路由和密钥来自一个已有的 dsh home（默认 ~/.dsh）：cordis.patch.yml（或旧版的 settings.yaml）原样复制；.credentials.yaml 只在运行期间
 复制进来，不读取、不打印，运行结束就删除（见 credentials()）。
 """
 import contextlib
@@ -30,6 +30,9 @@ PATCH = """# Loom 测试用：会话日志存成一行一个事件的普通 JSON
     compression: none
     preparedSessionCacheSize: 5
     writeBatchMaxDelayMs: 200
+# dsh 0.2 的 headless 默认关掉凭据服务，只读启动环境；打开它才读得到 credentials() 复制进来的文件。
+- id: credentials
+  disabled: false
 """
 GIT_ID = {"GIT_AUTHOR_NAME": "loom-test", "GIT_AUTHOR_EMAIL": "loom-test@example.com",
           "GIT_COMMITTER_NAME": "loom-test", "GIT_COMMITTER_EMAIL": "loom-test@example.com"}
@@ -69,10 +72,11 @@ class Rig:
                            capture_output=True)
         if r.returncode != 0 or not (self.loom / "SKILL.md").is_file():
             raise RigError("部署被测的 Loom 失败：\n" + (r.stdout + r.stderr).decode("utf-8", "replace")[-1500:])
-        settings = self.source_home / "settings.yaml"
-        if not settings.is_file():
-            raise RigError(f"{settings} 不存在：需要一个配置过模型的 dsh home（用 --dsh-home 或 LOOM_TEST_DSH_HOME 指定）。")
-        shutil.copyfile(settings, self.home / "settings.yaml")
+        # dsh 0.2 起模型路由写在 home 级的 cordis.patch.yml；更早的版本用 settings.yaml
+        settings = [f for f in ("cordis.patch.yml", "settings.yaml") if (self.source_home / f).is_file()]
+        if not settings:
+            raise RigError(f"{self.source_home} 里没有 cordis.patch.yml 或 settings.yaml：需要一个配置过模型的 dsh home（用 --dsh-home 或 LOOM_TEST_DSH_HOME 指定）。")
+        shutil.copyfile(self.source_home / settings[0], self.home / settings[0])
         self.patch.write_text(PATCH, encoding="utf-8")
         return self
 
@@ -121,7 +125,7 @@ class Rig:
 
     def run(self, cwd, prompt, timeout=900):
         """在 cwd 里跑一个一次性任务。返回 exit、seconds、answer、stderr、log（这次会话的日志路径）。"""
-        before = set(self.home.glob("sessions/*/*/session.jsonl"))
+        before = set(self.home.glob("sessions/*/*/session*.jsonl"))
         start = time.time()
         try:
             r = subprocess.run([*dsh_command(), "--profile", "headless", "--patch", str(self.patch), prompt],
@@ -129,7 +133,7 @@ class Rig:
             code, out, err = r.returncode, r.stdout, r.stderr
         except subprocess.TimeoutExpired as e:
             code, out, err = -1, e.stdout or b"", (e.stderr or b"") + f"\n超时（{timeout} 秒）".encode("utf-8")
-        logs = sorted(set(self.home.glob("sessions/*/*/session.jsonl")) - before, key=lambda p: p.stat().st_mtime)
+        logs = sorted(set(self.home.glob("sessions/*/*/session*.jsonl")) - before, key=lambda p: p.stat().st_mtime)
         err_text = "\n".join(line for line in err.decode("utf-8", "replace").splitlines()
                              if "ExperimentalWarning" not in line and "trace-warnings" not in line)
         return {"exit": code, "seconds": round(time.time() - start, 1), "answer": out.decode("utf-8", "replace").strip(),

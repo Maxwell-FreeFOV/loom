@@ -8,7 +8,7 @@
 
 ## 运行
 
-需要本机装有 dsh（`npm i -g @deepseek-ai/dsh`），并且有一个配置过模型的 dsh home（缺省 `~/.dsh`）。会产生模型调用费用，所以不进 CI。
+需要本机装有 dsh（`npm i -g @deepseek-ai/dsh`），并且有一个配置过模型的 dsh home（缺省 `~/.dsh`，用 `--dsh-home` 指定别的）：home 目录下有 `cordis.patch.yml`，写着模型路由（`llm-pi-ai` 和 `agent-default-model`）；0.2 之前的 dsh 用 `settings.yaml`。会产生模型调用费用，所以不进 CI。
 
 ```bash
 py tests/agent/run.py --list                       # 列出场景
@@ -35,7 +35,7 @@ py tests/agent/ctxtrace.py <session.jsonl>         # 单独分析一份 dsh 会�
 | `DSH_TELEMETRY_MODE` | `DISABLED` | 关闭遥测 |
 
 - 被测的 Loom 由 `tools/deploy.py --home` 部署进 `userhome/`。
-- 模型设置从已有的 dsh home 复制 `settings.yaml`。凭据文件 `.credentials.yaml` 只在运行期间复制进来，不读取、不打印，结束后删除。
+- 模型设置从已有的 dsh home 复制 `cordis.patch.yml`（或旧版的 `settings.yaml`）。凭据文件 `.credentials.yaml` 只在运行期间复制进来，不读取、不打印，结束后删除。
 - 一个 patch 把会话日志改成一行一个事件的普通 JSONL。
 - 因为换了 `USERPROFILE`，git 读不到全局身份，测试用环境变量给一个固定的测试身份。
 
@@ -52,6 +52,8 @@ py tests/agent/ctxtrace.py <session.jsonl>         # 单独分析一份 dsh 会�
 | `s5` | 在 `repos/<名称>/` 里启动时，还找不找得到知识库 |
 | `s7` | 发布快照前会不会停下来等确认 |
 | `s8` | 从一个普通文件夹初始化 |
+| `s15` | 归档时，待确认事项有没有编号和推荐答案，没答复的是否没写成用户确认 |
+| `s16` | 调研时，写下的内容有没有引用一手来源 |
 
 每个场景有两种检查。硬性检查（✅ 或 ❌）对应流程里规定必须做到的事；观察项（·）只记录看到了什么。模型的输出不确定，一个场景至少跑三次，看次数。
 
@@ -61,4 +63,4 @@ py tests/agent/ctxtrace.py <session.jsonl>         # 单独分析一份 dsh 会�
 
 ## 依赖的 dsh 细节
 
-dsh 还在预览期。这套测试依赖的东西列在 `ctxtrace.py` 和 `rig.py` 的文件头里：会话日志的几种事件和字段、几个环境变量、headless profile，以及"patch 会整体替换一行的 config"这个行为。升级 dsh 之后先跑一次 `s1` 确认日志还读得出来。写这份说明时用的是 dsh 0.1.1-rc.2。
+dsh 还在预览期。这套测试依赖的东西列在 `ctxtrace.py` 和 `rig.py` 的文件头里：会话日志的几种事件和字段、几个环境变量、headless profile，以及"patch 会整体替换一行的 config"这个行为。升级 dsh 之后先跑一次 `s1` 确认日志还读得出来。写这份说明时用的是 dsh 0.2.1-rc.2。

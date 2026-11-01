@@ -509,6 +509,29 @@ def check_style_saved(rig, ws, head, t, c):
     c.must("AGENTS.md 的项目约定里记下了汇报方式，只有一处", len(hits) == 1, hits)
 
 
+def check_confirm(rig, ws, head, t, c):
+    check_reconcile(rig, ws, head, t, c)
+    part = t["answer"].split("需要你确认", 1)[1] if "需要你确认" in t["answer"] else ""
+    c.must("回答有“需要你确认的”一节", bool(part), t["answer"][-300:])
+    c.must("确认项带编号", bool(re.search(r"^\s*(?:\*\*)?\d+[.、)）]", part, re.M)), part[:300])
+    c.must("至少一条带推荐答案", bool(re.search(r"建议|推荐", part)), part[:300])
+    files = rig.git(ws, "diff", "--name-only", head, "HEAD").splitlines()
+    changed = "\n".join(read(ws / f) for f in files if f.endswith(".md") and "/raw/" not in f)
+    c.must("没答复的全文索引建议没有写成用户确认", not re.search(r"(全文索引|FTS5)[^\n]{0,80}用户确认", changed), changed[:300])
+
+
+def check_research(rig, ws, head, t, c):
+    loaded(c, t)
+    written = [p for p in ws.rglob("*.md") if not {"repos", ".git"} & set(p.relative_to(ws).parts)]
+    text = "\n".join(read(p) for p in written)
+    c.must("写下的内容引用了一手来源 sqlite.org", "sqlite.org" in text, t["answer"][:300])
+    wiki = [p for p in (ws / "30-Wiki").rglob("*.md") if "FTS5" in read(p)]
+    c.must("wiki 里有这条结论", bool(wiki), [p.name for p in wiki])
+    c.info("引用的网址个数", len(set(re.findall(r"https?://[^\s)\]>\"']+", text))))
+    c.info("原件进了 20-Sources/raw/", [p.name for p in (ws / "20-Sources/raw").rglob("*.md")])
+    c.info("登记进了资料清单", "FTS5" in read(ws / "20-Sources/sources-index.md"))
+
+
 SCENARIOS = {
     "s1": {"title": "冷启动问现状", "fixture": base_project, "prompt": "这个项目现在进行到哪一步了？", "check": check_status_question},
     "s2-zh": {"title": "触发：中文点名", "fixture": base_project, "prompt": "用 Loom 给这个知识库做一次体检。", "check": check_lint},
@@ -542,6 +565,10 @@ SCENARIOS = {
     "b1": {"title": "让 AI 升级 Loom", "fixture": old_clone, "no_commit": True,
            "prompt": "请按 https://github.com/Maxwell-FreeFOV/loom 上的说明，帮我把这台电脑上的 Loom 升级到最新版。" + NO_QUESTIONS,
            "check": check_ai_upgrade},
+    "s15": {"title": "归档的确认项带推荐答案", "fixture": reconcile_project, "exclude": ("草稿.txt",),
+            "prompt": "用 Loom 把之前没有归档的讨论归档。" + NO_QUESTIONS, "check": check_confirm},
+    "s16": {"title": "调研追到一手来源", "fixture": base_project,
+            "prompt": "帮我调研一下：SQLite 的 FTS5 全文索引能不能用来搜索中文？把结论记进知识库。" + NO_QUESTIONS, "check": check_research},
     "s14": {"title": "交流方式：说明以后都这样", "fixture": style_backfill_project, "exclude": ("草稿.txt",),
             "prompt": "用 Loom 把之前没有归档的讨论归档。" + NO_QUESTIONS, "check": check_style_saved},
 }
